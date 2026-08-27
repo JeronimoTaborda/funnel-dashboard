@@ -23,6 +23,7 @@
     byKey: Object.create(null),
 
     view: 'resumen',
+    mode: 'simple',   // 'simple' para el cliente | 'detailed' para el equipo
     range: 30,           // numero de dias | 'all' | 'custom'
     from: null,          // Date | null
     to: null,            // Date | null
@@ -991,9 +992,58 @@
     return vals;
   }
 
+
+  // ------------------------------------------------- modo simple / detallado
+  // El cliente no es marketero: por defecto ve lenguaje llano y solo lo que
+  // necesita para decidir. Lo tecnico (UTMs, tiers, datos crudos) sigue ahi,
+  // a un clic, sin duplicar codigo ni configuracion.
+
+  function simpleMode() { return S.mode === 'simple'; }
+
+  /** Etiqueta segun el modo: usa `simple` si existe y estamos en modo simple. */
+  function lbl(o) {
+    if (!o) return '';
+    return (simpleMode() && o.simple) ? o.simple : (o.label || o.short || '');
+  }
+
+  /** Oculta los bloques marcados detailOnly cuando el modo es simple. */
+  function visible(list) {
+    if (!list) return [];
+    return simpleMode() ? list.filter(function (x) { return !x.detailOnly; }) : list;
+  }
+
+  /** Icono de ayuda: una frase explicando el numero, sin jerga. */
+  function helpIcon(text) {
+    if (!text) return '';
+    return '<span class="help" tabindex="0" role="button" aria-label="What this means: '
+      + esc(text) + '" data-help="' + esc(text) + '">?</span>';
+  }
+
+  function wireHelp(root) {
+    $$('[data-help]', root || document).forEach(function (el) {
+      var show = function (e) {
+        var r = el.getBoundingClientRect();
+        showTip('<div class="tt-title">What this means</div><div>' + esc(el.getAttribute('data-help')) + '</div>',
+          e.clientX || r.left + r.width / 2, e.clientY || r.bottom);
+      };
+      el.addEventListener('mouseenter', show);
+      el.addEventListener('focus', show);
+      el.addEventListener('mouseleave', hideTip);
+      el.addEventListener('blur', hideTip);
+    });
+  }
+
+  /** Frase de portada: lo mismo que dicen los KPI, en una oracion. */
+  function headline(text) {
+    return '<p class="headline">' + text + '</p>';
+  }
+
+  function money(n) { return '<strong>' + esc(cfmt(n)) + '</strong>'; }
+  function count(n) { return '<strong>' + esc(nfmt(n)) + '</strong>'; }
+
   // ------------------------------------------------------------- componentes
 
-  function kpiCard(label, value, sub, delta) {
+  function kpiCard(label, value, sub, delta, help) {
     var d = '';
     if (delta && delta.show) {
       var dir = delta.pct > 1 ? 'up' : (delta.pct < -1 ? 'down' : 'flat');
@@ -1003,7 +1053,7 @@
         + '<span class="base">vs ' + esc(delta.baseLabel) + '</span></div>';
     }
     return '<div class="kpi">'
-      + '<div class="kpi-label">' + esc(label) + '</div>'
+      + '<div class="kpi-label">' + esc(label) + helpIcon(help) + '</div>'
       + '<div class="kpi-value">' + value + '</div>'
       + (sub ? '<div class="kpi-sub">' + esc(sub) + '</div>' : '')
       + d + '</div>';
@@ -1042,6 +1092,9 @@
     $$('#tabs button').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.getAttribute('data-view') === S.view));
     });
+    $$('#modeSeg button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-mode') === S.mode));
+    });
     $('#btnExportLabel').textContent =
       S.view === 'ventas' ? 'Revenue CSV' : (S.view === 'webinars' ? 'Webinar CSV' : 'People CSV');
 
@@ -1062,6 +1115,7 @@
     else if (S.view === 'personas') renderPersonas(host, w);
     else renderWebinars(host, w);
 
+    wireHelp(host);
     renderFooter();
   }
 
@@ -1075,7 +1129,7 @@
     var prevCounts = (S.compare && pw) ? stageCounts(poolFor(pw)) : null;
 
     // --- KPIs
-    var kpis = (S.config.kpis || []).map(function (k) {
+    var kpis = visible(S.config.kpis || []).map(function (k) {
       var value = '—', sub = '', dl = null;
 
       if (k.type === 'stageCount') {
@@ -1083,7 +1137,8 @@
         value = nfmt(f ? f.count : 0);
         var base = fd[0];
         if (f && base && base.id !== f.id && base.count) {
-          sub = pfmt(pct(f.count, base.count), 1) + ' of \u201c' + base.short + '\u201d';
+          sub = pfmt(pct(f.count, base.count), 1)
+            + (simpleMode() ? ' of ticket buyers' : ' of \u201c' + base.short + '\u201d');
         }
         dl = prevCounts ? delta(f ? f.count : 0, prevCounts[k.stage] ? prevCounts[k.stage].count : 0) : null;
 
@@ -1103,9 +1158,19 @@
           dl = delta(r, pa && pb ? pct(pb.count, pa.count) : 0);
         }
       }
-      return kpiCard(k.label, value, sub, dl);
+      return kpiCard(lbl(k), value, sub, dl, k.help);
     }).join('');
 
+    // Una frase antes de los numeros: el cliente entiende el mes de un vistazo.
+    var fs = funnelStages();
+    var entry = counts[fs[0].id], last = counts[fs[fs.length - 1].id];
+    if (simpleMode() && entry && entry.count) {
+      host.insertAdjacentHTML('beforeend', headline(
+        count(entry.count) + ' people bought a webinar ticket in this period, and '
+        + count(last.count) + ' of them joined the program'
+        + (last.count ? ' \u2014 that is ' + '<strong>' + (Math.round(pct(last.count, entry.count) * 10) / 10)
+          + ' out of every 100</strong>' : '') + '.'));
+    }
     host.insertAdjacentHTML('beforeend', '<section class="kpis">' + kpis + '</section>');
 
     // --- Embudo
@@ -1118,7 +1183,7 @@
       var lost = prev == null ? 0 : prev - f.count;
       var bad = step != null && step < 40 && prev > 0;
       return '<div class="funnel-row" role="button" tabindex="0" data-stage="' + esc(f.id) + '">'
-        + '<div class="funnel-name">' + esc(f.label)
+        + '<div class="funnel-name">' + esc(lbl(stageById(f.id)) || f.label)
         + (i === 0 ? '<small>funnel entry</small>'
           : '<small>' + (lost > 0 ? '\u2212' + nfmt(lost) + ' people' : 'no drop') + '</small>') + '</div>'
         + '<div class="funnel-track">'
@@ -1141,10 +1206,13 @@
           + pfmt(pct(f.count, top), 1) + '</td></tr>';
       }).join('') + '</tbody></table></details>';
 
-    host.insertAdjacentHTML('beforeend', card('Conversion funnel',
+    host.insertAdjacentHTML('beforeend', card(
+      simpleMode() ? 'Where people drop off' : 'Conversion funnel',
       nfmt(pool.length) + ' people in period',
       '<div class="funnel">' + rows + '</div>' + fTable,
-      'Each bar is a stage. The percentage on the right is the conversion from the previous stage. Click a stage to see those people.'));
+      simpleMode()
+        ? 'Each bar is one step. Fewer people reach each step than the one before. Click a step to see exactly who they are.'
+        : 'Each bar is a stage. The percentage on the right is the conversion from the previous stage. Click a stage to see those people.'));
 
     $$('#view .funnel-row').forEach(function (row) {
       var go = function () {
@@ -1160,10 +1228,13 @@
 
     // --- Evolución (small multiples: una escala por etapa, nunca dos ejes)
     var bk = buckets(w);
-    host.insertAdjacentHTML('beforeend', card('Trend over time',
+    host.insertAdjacentHTML('beforeend', card(
+      simpleMode() ? 'Day by day' : 'Trend over time',
       bk.bucketDays === 1 ? 'by day' : (bk.bucketDays === 7 ? 'by week' : 'by month'),
       '<div class="grid-2" id="trendGrid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px"></div>',
-      'How many people entered each stage over the selected period.'));
+      simpleMode()
+        ? 'How many people reached each step, day by day.'
+        : 'How many people entered each stage over the selected period.'));
 
     var grid = $('#trendGrid');
     funnelStages().forEach(function (st) {
@@ -1172,11 +1243,11 @@
       var box = document.createElement('div');
       box.style.minWidth = '0';
       box.innerHTML = '<div style="font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:1px">'
-        + esc(st.label) + '</div>'
+        + esc(lbl(st)) + '</div>'
         + '<div style="font-size:11.5px;color:var(--ink-muted);margin-bottom:6px;font-variant-numeric:tabular-nums">'
         + nfmt(total) + ' in period</div>';
       grid.appendChild(box);
-      drawSpark(box, { label: st.label, values: vals, total: total }, bk.list, bk.bucketDays);
+      drawSpark(box, { label: lbl(st), values: vals, total: total }, bk.list, bk.bucketDays);
     });
 
     // --- Segmentos
@@ -1189,7 +1260,7 @@
     wrap.style.marginTop = '20px';
     host.appendChild(wrap);
 
-    (S.config.segments || []).forEach(function (seg) {
+    visible(S.config.segments || []).forEach(function (seg) {
       var g = makeGrouper(), counts = Object.create(null), withData = 0;
       pool.forEach(function (p) {
         var row = p.raw[seg.stage];
@@ -1242,32 +1313,40 @@
 
     function prevOf(fn) { return prevEvs ? fn(prevEvs) : null; }
 
+    var simple = simpleMode();
     var kpis = [
-      kpiCard('Cash collected', cfmt(total),
+      kpiCard(simple ? 'Money received' : 'Cash collected', cfmt(total),
         nfmt(evs.length) + ' payments in period',
-        delta(total, prevOf(function (e) { return sumBy(e); }))),
+        delta(total, prevOf(function (e) { return sumBy(e); })),
+        'Every payment that actually landed in this period \u2014 tickets, deposits and program payments. Monthly instalments count in the month they are charged.'),
 
-      kpiCard('Program cash', cfmt(prog),
+      kpiCard(simple ? 'From the program' : 'Program cash', cfmt(prog),
         'deposits, instalments and full payments',
-        delta(prog, prevOf(function (e) { return sumBy(e, progClasses); }))),
+        delta(prog, prevOf(function (e) { return sumBy(e, progClasses); })),
+        'The part of the money that came from REVIVE, not from webinar tickets.'),
 
-      kpiCard('New customers', nfmt(clients.length),
+      kpiCard(simple ? 'People who joined' : 'New customers', nfmt(clients.length),
         'first program payment in period',
-        prevClients ? delta(clients.length, prevClients.length) : null),
+        prevClients ? delta(clients.length, prevClients.length) : null,
+        'People whose FIRST program payment happened in this period. Someone paying their second instalment is not counted again.'),
 
-      kpiCard('Contract value signed', cfmt(contract),
+      kpiCard(simple ? 'Total value of new sales' : 'Contract value signed', cfmt(contract),
         'from new customers in period',
         prevClients ? delta(contract, prevClients.reduce(function (a, p) {
           return a + (p.contract || 0);
-        }, 0)) : null),
+        }, 0)) : null,
+        'The full agreed price of what was sold, even if the customer pays it over three months.'),
 
-      kpiCard('Average deal size', clients.length ? cfmt(contract / clients.length) : '\u2014',
-        'contract value \u00f7 new customers', null),
+      kpiCard(simple ? 'Average sale' : 'Average deal size',
+        clients.length ? cfmt(contract / clients.length) : '\u2014',
+        'contract value \u00f7 new customers', null,
+        'On average, how much each new customer agreed to pay in total.'),
 
-      kpiCard('Ticket sales', cfmt(entradas),
+      kpiCard(simple ? 'From webinar tickets' : 'Ticket sales', cfmt(entradas),
         nfmt(countBy(evs, ['entrada'])) + ' tickets'
           + (down ? ' \u00b7 downsell ' + cfmt(down) : ''),
-        delta(entradas, prevOf(function (e) { return sumBy(e, ['entrada']); })))
+        delta(entradas, prevOf(function (e) { return sumBy(e, ['entrada']); })),
+        'Money from the $29 webinar seats and the workshop tickets.')
     ];
 
     // Rentabilidad: la caja sola no dice si el mes fue bueno.
@@ -1277,14 +1356,29 @@
       var net = total - spend;
       var prevNet = (prevEvs && prevSpend) ? sumBy(prevEvs) - prevSpend : null;
       kpis.splice(1, 0,
-        kpiCard('Net after ad spend', cfmt(net),
-          cfmt(total) + ' cash \u2212 ' + cfmt(spend) + ' ads',
-          delta(net, prevNet)),
-        kpiCard('ROAS', xfmt(total / spend),
-          'cash collected \u00f7 ad spend',
-          delta(total / spend, (prevEvs && prevSpend) ? sumBy(prevEvs) / prevSpend : null)));
+        kpiCard(simple ? 'Money kept after ads' : 'Net after ad spend', cfmt(net),
+          cfmt(total) + ' in \u2212 ' + cfmt(spend) + ' on ads',
+          delta(net, prevNet),
+          'What is left after paying for advertising. It does not subtract salaries, software or other costs.'),
+        kpiCard(simple ? 'Back per $1 of ads' : 'ROAS',
+          simple ? cfmt(total / spend).replace(/[^0-9.,$]/g, '') : xfmt(total / spend),
+          simple ? 'for every $1 spent on ads' : 'cash collected \u00f7 ad spend',
+          delta(total / spend, (prevEvs && prevSpend) ? sumBy(prevEvs) / prevSpend : null),
+          'For every dollar spent on ads, this is how many dollars came back. Above 1 means the advertising paid for itself.'));
     }
     kpis = kpis.join('');
+
+    if (simple) {
+      var line = money(total) + ' came in during this period';
+      if (spend != null && spend > 0) {
+        line += ', and after ' + money(spend) + ' spent on ads you kept ' + money(total - spend);
+      }
+      line += '. ' + count(clients.length) + ' '
+        + (clients.length === 1 ? 'person' : 'people') + ' joined the program';
+      if (contract) line += ', worth ' + money(contract) + ' in total sales';
+      line += '.';
+      host.insertAdjacentHTML('beforeend', headline(line));
+    }
 
     host.insertAdjacentHTML('beforeend', '<section class="kpis">' + kpis + '</section>');
 
@@ -1292,10 +1386,10 @@
       '<p class="card-desc" style="margin:-8px 0 18px">'
       + (spend == null ? '<strong>Ad spend:</strong> no webinar falls inside this period, '
         + 'so net and ROAS are not shown. Ad spend is only recorded per webinar in the Event Tracker. ' : '')
-      + '<strong>Cash collected</strong> is money that actually came in \u2014 split-pay instalments land every month. '
+      + (simple ? '' : '<strong>Cash collected</strong> is money that actually came in \u2014 split-pay instalments land every month. '
       + '<strong>Contract value</strong> is what was signed, in full, on the day of the close. '
       + 'A 3 \u00d7 $1,665 customer counts as one customer and $4,995 of contract, '
-      + 'but their cash arrives across three months.</p>');
+      + 'but their cash arrives across three months.') + '</p>');
 
     // --- Ingresos en el tiempo (una escala por serie)
     var bk = buckets(w);
@@ -1332,7 +1426,7 @@
     brk.style.marginTop = '20px';
     host.appendChild(brk);
 
-    (sales.breakdowns || []).forEach(function (b) {
+    visible(sales.breakdowns || []).forEach(function (b) {
       var g = makeGrouper(), acc = Object.create(null), people = Object.create(null);
       evs.forEach(function (e) {
         if (b.only && b.only.indexOf(e.cls) === -1 && b.only.indexOf(e.stage && e.stage.id) === -1) return;
@@ -1421,16 +1515,17 @@
 
   function renderPersonas(host, w) {
     var pool = poolFor(w, { applyStage: true });
-    var cols = (S.config.table && S.config.table.columns) || [];
+    var cols = visible((S.config.table && S.config.table.columns) || []);
 
     // barra de herramientas: etapa + facetas
     var chips = '<button data-stage="" aria-pressed="' + (!S.stageFilter) + '">All</button>'
-      + (S.config.stages || []).map(function (s) {
-        return '<button data-stage="' + esc(s.id) + '" aria-pressed="'
-          + (S.stageFilter === s.id) + '">' + esc(s.short || s.label) + '</button>';
-      }).join('');
+      + (S.config.stages || []).filter(function (s) { return !simpleMode() || s.funnel !== false; })
+        .map(function (s) {
+          return '<button data-stage="' + esc(s.id) + '" aria-pressed="'
+            + (S.stageFilter === s.id) + '">' + esc(s.short || lbl(s)) + '</button>';
+        }).join('');
 
-    var facets = (S.config.facets || []).map(function (f) {
+    var facets = visible(S.config.facets || []).map(function (f) {
       var vals = Object.create(null);
       S.people.forEach(function (p) {
         var v = facetValue(p, f);
@@ -1622,7 +1717,8 @@
     }).join('');
     host.insertAdjacentHTML('beforeend', '<section class="kpis">' + kpis + '</section>');
 
-    var cols = cfg.columns || [];
+    var hideCols = simpleMode() ? (cfg.detailColumns || []) : [];
+    var cols = (cfg.columns || []).filter(function (c) { return hideCols.indexOf(c.label) === -1; });
     var head = '<tr>' + cols.map(function (c) {
       return '<th' + (c.type !== 'date' ? ' class="num"' : '') + '>' + esc(c.label) + '</th>';
     }).join('') + '</tr>';
@@ -1753,7 +1849,7 @@
     var prof = S.config.profile || {};
 
     // --- hechos clave
-    var facts = (prof.facts || []).map(function (f) {
+    var facts = visible(prof.facts || []).map(function (f) {
       var v;
       if (f.type === 'value') v = cfmt(p.value);
       else if (f.type === 'firstSeen') v = dfmt(p.firstSeen);
@@ -1820,7 +1916,7 @@
     }).join('');
 
     // --- secciones crudas
-    var sections = ((S.config.detail && S.config.detail.sections) || []).map(function (sec) {
+    var sections = visible((S.config.detail && S.config.detail.sections) || []).map(function (sec) {
       var rows = p.rows[sec.stage] || [];
       if (!rows.length) return '';
       var html = rows.map(function (row) {
@@ -2064,6 +2160,17 @@
   }
 
   function wireUI() {
+    $$('#modeSeg button').forEach(function (b) {
+      b.addEventListener('click', function () {
+        S.mode = b.getAttribute('data-mode');
+        try { localStorage.setItem('fd-mode', S.mode); } catch (e) { }
+        $$('#modeSeg button').forEach(function (x) {
+          x.setAttribute('aria-pressed', String(x === b));
+        });
+        render();
+      });
+    });
+
     $$('#tabs button').forEach(function (b) {
       b.addEventListener('click', function () {
         S.view = b.getAttribute('data-view');
@@ -2196,6 +2303,8 @@
     try {
       var th = localStorage.getItem('fd-theme');
       if (th) document.documentElement.setAttribute('data-theme', th);
+      var md = localStorage.getItem('fd-mode');
+      if (md === 'simple' || md === 'detailed') S.mode = md;
     } catch (e) { }
 
     var h = readHash();

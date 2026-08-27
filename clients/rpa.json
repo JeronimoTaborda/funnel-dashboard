@@ -42,7 +42,9 @@
           "UTM Content Latest",
           "Ads or Organic?"
         ]
-      }
+      },
+      "simple": "Bought a webinar ticket",
+      "help": "Someone paid for a seat at the webinar."
     },
     {
       "id": "quiz",
@@ -64,7 +66,9 @@
           "Tier",
           "Overall Score"
         ]
-      }
+      },
+      "simple": "Filled out the questionnaire",
+      "help": "After buying, they answered a few questions about their situation."
     },
     {
       "id": "hot",
@@ -92,7 +96,9 @@
         "metaFields": [
           "Overall Score"
         ]
-      }
+      },
+      "simple": "Most ready to buy",
+      "help": "Their questionnaire answers say they are ready to start now."
     },
     {
       "id": "closed",
@@ -120,7 +126,9 @@
       "activity": {
         "label": "Became a program customer"
       },
-      "derived": "customer"
+      "derived": "customer",
+      "simple": "Joined the program",
+      "help": "They paid for REVIVE — a deposit or a full payment."
     },
     {
       "id": "txn",
@@ -152,47 +160,61 @@
       "id": "tickets",
       "label": "Tickets sold",
       "type": "stageCount",
-      "stage": "ticket"
+      "stage": "ticket",
+      "simple": "Webinar tickets sold",
+      "help": "How many people paid to attend a webinar."
     },
     {
       "id": "ticket_rev",
       "label": "Ticket revenue",
       "type": "stageValue",
       "stage": "ticket",
-      "format": "currency"
+      "format": "currency",
+      "simple": "Money from tickets",
+      "help": "Everything collected from webinar and workshop tickets."
     },
     {
       "id": "quiz_rate",
       "label": "Completed the quiz",
       "type": "rate",
       "from": "ticket",
-      "to": "quiz"
+      "to": "quiz",
+      "simple": "Filled the questionnaire",
+      "help": "Of everyone who bought a ticket, how many answered the questions."
     },
     {
       "id": "hot",
       "label": "Hot Leads",
       "type": "stageCount",
-      "stage": "hot"
+      "stage": "hot",
+      "simple": "Most ready to buy",
+      "help": "People whose answers say they are ready to start now."
     },
     {
       "id": "closes",
       "label": "Program customers",
       "type": "stageCount",
-      "stage": "closed"
+      "stage": "closed",
+      "simple": "Joined the program",
+      "help": "People who paid for REVIVE in this period."
     },
     {
       "id": "prog_rev",
       "label": "Contract value",
       "type": "stageValue",
       "stage": "closed",
-      "format": "currency"
+      "format": "currency",
+      "simple": "Total value of sales",
+      "help": "The full price agreed, even if they pay it monthly."
     },
     {
       "id": "close_rate",
       "label": "Ticket → customer",
       "type": "rate",
       "from": "ticket",
-      "to": "closed"
+      "to": "closed",
+      "simple": "Ticket buyers who joined",
+      "help": "Out of every 100 ticket buyers, how many ended up joining."
     }
   ],
   "segments": [
@@ -200,55 +222,64 @@
       "id": "adsorg",
       "label": "Paid vs Organic",
       "stage": "ticket",
-      "field": "Ads or Organic?"
+      "field": "Ads or Organic?",
+      "detailOnly": true
     },
     {
       "id": "source",
       "label": "Source (UTM Source)",
       "stage": "ticket",
-      "field": "UTM Source Latest"
+      "field": "UTM Source Latest",
+      "detailOnly": true
     },
     {
       "id": "creative",
       "label": "Creative (UTM Content)",
       "stage": "ticket",
-      "field": "UTM Content Latest"
+      "field": "UTM Content Latest",
+      "detailOnly": true
     },
     {
       "id": "campaign",
       "label": "Campaign (UTM Campaign)",
       "stage": "ticket",
-      "field": "UTM Campaign Latest"
+      "field": "UTM Campaign Latest",
+      "detailOnly": true
     },
     {
       "id": "audience",
       "label": "Audience (UTM Medium)",
       "stage": "ticket",
-      "field": "UTM Medium Latest"
+      "field": "UTM Medium Latest",
+      "detailOnly": true
     },
     {
       "id": "tier",
       "label": "Intent tier",
       "stage": "quiz",
-      "field": "Tier"
+      "field": "Tier",
+      "detailOnly": true
     },
     {
       "id": "coaching",
       "label": "Interested in coaching?",
       "stage": "quiz",
-      "field": "Interested In Coaching"
+      "field": "Interested In Coaching",
+      "detailOnly": true
     },
     {
       "id": "q1",
       "label": "What they want (Q1)",
       "stage": "quiz",
-      "field": "Question 1"
+      "field": "Question 1",
+      "detailOnly": true
     },
     {
       "id": "q3",
       "label": "Priority (Q3)",
       "stage": "quiz",
-      "field": "Question 3"
+      "field": "Question 3",
+      "detailOnly": true
     }
   ],
   "events": {
@@ -369,6 +400,13 @@
         "field": "Show-Up Rate (%)",
         "format": "percent"
       }
+    ],
+    "detailColumns": [
+      "Ad spend",
+      "Show-up",
+      "Close rate",
+      "ROAS",
+      "CAC"
     ]
   },
   "table": {
@@ -398,7 +436,8 @@
         "key": "raw.quiz.Overall Score",
         "label": "Score",
         "type": "number",
-        "align": "right"
+        "align": "right",
+        "detailOnly": true
       },
       {
         "key": "raw.ticket.Ads or Organic?",
@@ -406,11 +445,13 @@
       },
       {
         "key": "raw.ticket.UTM Source Latest",
-        "label": "Source"
+        "label": "Source",
+        "detailOnly": true
       },
       {
         "key": "raw.ticket.UTM Content Latest",
-        "label": "Creative"
+        "label": "Creative",
+        "detailOnly": true
       },
       {
         "key": "cash",
@@ -427,7 +468,8 @@
       {
         "key": "cashStatus",
         "label": "Cash status",
-        "type": "cashStatus"
+        "type": "cashStatus",
+        "detailOnly": true
       },
       {
         "key": "firstSeen",
@@ -437,7 +479,8 @@
       {
         "key": "lastSeen",
         "label": "Last activity",
-        "type": "date"
+        "type": "date",
+        "detailOnly": true
       }
     ],
     "searchFields": [
@@ -452,17 +495,20 @@
       {
         "title": "Webinar ticket",
         "stage": "ticket",
-        "fields": "*"
+        "fields": "*",
+        "detailOnly": true
       },
       {
         "title": "Intent quiz",
         "stage": "quiz",
-        "fields": "*"
+        "fields": "*",
+        "detailOnly": true
       },
       {
         "title": "Payments",
         "stage": "txn",
-        "fields": "*"
+        "fields": "*",
+        "detailOnly": true
       }
     ]
   },
@@ -477,7 +523,8 @@
         "attr": {
           "stage": "ticket",
           "field": "Ads or Organic?"
-        }
+        },
+        "detailOnly": false
       },
       {
         "id": "source",
@@ -485,7 +532,8 @@
         "attr": {
           "stage": "ticket",
           "field": "UTM Source Latest"
-        }
+        },
+        "detailOnly": true
       },
       {
         "id": "creative",
@@ -494,7 +542,8 @@
           "stage": "ticket",
           "field": "UTM Content Latest"
         },
-        "desc": "All of a person's revenue (ticket + program) is attributed to the creative that brought them in."
+        "desc": "All of a person's revenue (ticket + program) is attributed to the creative that brought them in.",
+        "detailOnly": true
       },
       {
         "id": "campaign",
@@ -502,7 +551,8 @@
         "attr": {
           "stage": "ticket",
           "field": "UTM Campaign Latest"
-        }
+        },
+        "detailOnly": true
       },
       {
         "id": "audience",
@@ -510,7 +560,8 @@
         "attr": {
           "stage": "ticket",
           "field": "UTM Medium Latest"
-        }
+        },
+        "detailOnly": true
       },
       {
         "id": "cohort",
@@ -519,7 +570,8 @@
           "stage": "$webinar",
           "field": ""
         },
-        "desc": "Tickets are attributed to the webinar they were bought for; program payments to the cycle they closed in."
+        "desc": "Tickets are attributed to the webinar they were bought for; program payments to the cycle they closed in.",
+        "detailOnly": false
       },
       {
         "id": "clase",
@@ -528,7 +580,8 @@
           "stage": "$class",
           "field": ""
         },
-        "desc": "Tickets, deposits, program and downsell, separated."
+        "desc": "Tickets, deposits, program and downsell, separated.",
+        "detailOnly": true
       }
     ],
     "adSpendFrom": {
@@ -554,7 +607,8 @@
       "id": "source",
       "label": "Source",
       "stage": "ticket",
-      "field": "UTM Source Latest"
+      "field": "UTM Source Latest",
+      "detailOnly": true
     }
   ],
   "profile": {
@@ -574,7 +628,8 @@
       },
       {
         "label": "Cash status",
-        "type": "cashStatus"
+        "type": "cashStatus",
+        "detailOnly": true
       },
       {
         "label": "Customer since",
@@ -582,7 +637,8 @@
       },
       {
         "label": "Data source",
-        "type": "customerSource"
+        "type": "customerSource",
+        "detailOnly": true
       },
       {
         "label": "Tier",
@@ -590,7 +646,8 @@
       },
       {
         "label": "Quiz score",
-        "path": "raw.quiz.Overall Score"
+        "path": "raw.quiz.Overall Score",
+        "detailOnly": true
       },
       {
         "label": "Source type",
@@ -598,19 +655,23 @@
       },
       {
         "label": "Source",
-        "path": "raw.ticket.UTM Source Latest"
+        "path": "raw.ticket.UTM Source Latest",
+        "detailOnly": true
       },
       {
         "label": "Creative",
-        "path": "raw.ticket.UTM Content Latest"
+        "path": "raw.ticket.UTM Content Latest",
+        "detailOnly": true
       },
       {
         "label": "Campaign",
-        "path": "raw.ticket.UTM Campaign Latest"
+        "path": "raw.ticket.UTM Campaign Latest",
+        "detailOnly": true
       },
       {
         "label": "Audience",
-        "path": "raw.ticket.UTM Medium Latest"
+        "path": "raw.ticket.UTM Medium Latest",
+        "detailOnly": true
       },
       {
         "label": "Closing webinar",
@@ -626,7 +687,8 @@
       },
       {
         "label": "CRM ID",
-        "path": "raw.txn.GHL ID"
+        "path": "raw.txn.GHL ID",
+        "detailOnly": true
       }
     ],
     "notes": [
@@ -671,7 +733,6 @@
         "label": "Other product",
         "amounts": [
           350,
-          2998,
           3498
         ]
       },
