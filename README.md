@@ -508,6 +508,31 @@ A veces guarda **una sola cuota** o **solo el depósito** en vez del precio tota
 | $500 | 1 | solo el depósito, falta el saldo |
 | $250 | 2 | abono parcial |
 
-El dashboard **no adivina** el precio total. Marca esas filas con la etiqueta
-`instalment only` en la tabla *Who joined* y cuenta cuántas hay en el subtítulo.
-Al corregir la columna en la hoja, el total se ajusta solo.
+### Reconstrucción del contrato (sin tocar la hoja)
+
+El dashboard lo repara en dos pasos, ninguno de ellos una suposición:
+
+1. **Cuota de un plan conocido → precio del plan.** `contractMap` en el config:
+   `$1.665 → $4.995` y `$1.650 → $4.950`, ambos planes de 3 cuotas. El primero lo
+   confirma una de tus propias notas de inscripción: *"three monthly instalments
+   of $1,665"*.
+2. **Abono suelto → lo que realmente se cobró.** Si el monto no está en el mapa
+   (p. ej. un depósito de `$500`), se usa la suma de sus pagos de programa en el
+   libro. Es un hecho registrado, no una estimación. El caso real: `$500` en la
+   hoja, `$500 + $4.998` en el libro → contrato `$5.498`.
+3. **Lo que no se resuelve por ninguna vía queda marcado.** Las 2 filas de `$250`
+   cerraron antes de que existiera el libro y no hay con qué reconstruirlas.
+
+Cada fila reconstruida lleva su etiqueta en *Who joined*, y el `title` del
+tooltip dice qué decía la hoja antes:
+
+| Etiqueta | Significa |
+|---|---|
+| `rebuilt` | era una cuota; se usó el precio del plan |
+| `from payments` | era un abono; se usó lo cobrado en el libro |
+| `incomplete` | no se pudo reconstruir |
+
+**Efecto:** agosto pasa de `$24.665` a `$27.995`. Todo el histórico: 61 clientes
+y `$264.324` en contratos, `$24.918` más de lo que sumaba la columna cruda.
+
+Para revertirlo, vaciar `contractMap` y poner `contractFromLedger: false`.

@@ -926,5 +926,10 @@
     500,
     1650,
     1665
-  ]
+  ],
+  "contractMap": {
+    "1665": 4995,
+    "1650": 4950
+  },
+  "contractFromLedger": true
 }

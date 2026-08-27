@@ -537,13 +537,39 @@
       p.contract = ((cfg.customerClasses || []).indexOf(classifyTx(rawContract)) !== -1)
         ? rawContract : 0;
 
-      // La columna Program Revenue a veces trae UNA cuota ($1.665) o solo el
-      // deposito ($500) en vez del precio total. No se adivina el contrato:
-      // se marca, para que se corrija en la hoja.
+      // La columna Program Revenue a veces trae UNA cuota o solo el deposito
+      // en vez del precio total. Se reconstruye en dos pasos, sin inventar:
+      //
+      //   1) Cuotas de un plan conocido -> precio del plan.
+      //      $1.665 x3 = $4.995 (lo dice una de las notas de inscripcion).
+      //   2) Abonos sueltos ($500 de deposito) -> lo que realmente pago
+      //      segun el libro, que es un hecho, no una estimacion.
+      //
+      // Lo que no se puede resolver por ninguna de las dos vias queda marcado.
       var partials = S.config.contractPartialAmounts || [];
-      p.contractPartial = !!p.contract && partials.some(function (x) {
-        return Math.abs(x - p.contract) < 0.01;
-      });
+      p.contractRaw = p.contract;
+      p.contractSource = 'sheet';
+      p.contractPartial = false;
+
+      if (p.contract && partials.some(function (x) { return Math.abs(x - p.contract) < 0.01; })) {
+        var mapped = (S.config.contractMap || {})[String(Math.round(p.contract))];
+        if (mapped) {
+          p.contract = mapped;
+          p.contractSource = 'plan';
+        } else if (S.config.contractFromLedger) {
+          var paid = (cfg.programClasses || cfg.customerClasses || []).reduce(function (a, cl) {
+            return a + (p.cashByClass[cl] || 0);
+          }, 0);
+          if (paid > p.contract) {
+            p.contract = paid;
+            p.contractSource = 'ledger';
+          } else {
+            p.contractPartial = true;
+          }
+        } else {
+          p.contractPartial = true;
+        }
+      }
       p.programCash = 0;
     });
 
@@ -1429,9 +1455,16 @@
           + '<td class="strong">' + esc(p.name) + '</td>'
           + '<td>' + esc(p.email || '—') + '</td>'
           + '<td class="num">' + (p.contract ? esc(cfmt(p.contract))
-            + (p.contractPartial ? ' <span class="tag" title="The Program Revenue column '
-              + 'shows one instalment or just the deposit, not the full agreed price">'
-              + 'instalment only</span>' : '')
+            + (p.contractPartial
+              ? ' <span class="tag" title="The Program Revenue column shows a part payment and '
+                + 'there is nothing in the ledger to reconstruct the full price">incomplete</span>'
+              : (p.contractSource === 'plan'
+                ? ' <span class="tag" title="The sheet shows one instalment of '
+                  + esc(cfmt(p.contractRaw)) + '; rebuilt to the full plan price">rebuilt</span>'
+                : (p.contractSource === 'ledger'
+                  ? ' <span class="tag" title="The sheet shows ' + esc(cfmt(p.contractRaw))
+                    + '; replaced with what was actually charged">from payments</span>'
+                  : '')))
             : '\u2014') + '</td>'
           + '<td class="num strong">' + (p.programCash ? esc(cfmt(p.programCash))
             : '<span class="tag" title="Closed per the sheet, no charge in the ledger">no ledger record</span>')
