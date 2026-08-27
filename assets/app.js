@@ -29,6 +29,7 @@
     compare: false,
 
     stageFilter: null,
+    webinar: '',
     facets: Object.create(null),
     search: '',
     page: 0,
@@ -363,7 +364,18 @@
     return (latest && latest > now) ? latest : now;
   }
 
+  function monthWindow(offset) {
+    var ref = refDate();
+    var y = ref.getFullYear(), m = ref.getMonth() + (offset || 0);
+    var from = new Date(y, m, 1, 0, 0, 0, 0);
+    var to = new Date(y, m + 1, 0, 23, 59, 59, 999);
+    if (!offset && to > ref) to = ref;      // el mes en curso corta hoy
+    return { from: from, to: to };
+  }
+
   function currentWindow() {
+    if (S.range === 'mtd') return monthWindow(0);
+    if (S.range === 'lastmonth') return monthWindow(-1);
     if (S.range === 'custom' && (S.from || S.to)) {
       var f = S.from ? new Date(S.from) : null;
       var t = S.to ? new Date(S.to) : refDate();
@@ -376,6 +388,8 @@
   }
 
   function prevWindow() {
+    if (S.range === 'mtd') return monthWindow(-1);
+    if (S.range === 'lastmonth') return monthWindow(-2);
     var w = currentWindow();
     if (!w.from || !w.to) return null;
     var len = w.to - w.from;
@@ -390,6 +404,11 @@
   }
 
   function windowLabel(w) {
+    if (S.range === 'mtd' || S.range === 'lastmonth') {
+      var name = w.from.toLocaleDateString(loc(), { month: 'long', year: 'numeric' });
+      return name.charAt(0).toUpperCase() + name.slice(1)
+        + (S.range === 'mtd' ? ' (month to date)' : '');
+    }
     if (!w.from && !w.to) return 'all time';
     if (!w.from) return 'through ' + dfmt(w.to);
     return dfmt(w.from) + ' — ' + dfmt(w.to);
@@ -556,6 +575,7 @@
 
     return S.people.filter(function (p) {
       if ((w.from || w.to) && !inWindow(p.firstSeen, w)) return false;
+      if (S.webinar && webinarOfPerson(p) !== S.webinar) return false;
       if (opts.applyStage && S.stageFilter && !p.stages[S.stageFilter]) return false;
 
       for (var i = 0; i < facets.length; i++) {
@@ -656,12 +676,19 @@
       });
     }
 
+    if (S.webinar) {
+      out = out.filter(function (e) { return webinarOfEvent(e) === S.webinar; });
+    }
     return out.sort(function (a, b) { return b.date - a.date; });
   }
 
   /** Clientes nuevos: personas cuyo PRIMER pago de programa cae en la ventana. */
   function newCustomers(w) {
-    return S.people.filter(function (p) { return p.customerAt && inWindow(p.customerAt, w); });
+    return S.people.filter(function (p) {
+      if (!p.customerAt || !inWindow(p.customerAt, w)) return false;
+      if (S.webinar && webinarOfPerson(p) !== S.webinar) return false;
+      return true;
+    });
   }
 
   function sumBy(evs, classes) {
@@ -672,6 +699,61 @@
   }
   function countBy(evs, classes) {
     return evs.filter(function (e) { return !classes || classes.indexOf(e.cls) !== -1; }).length;
+  }
+
+
+  // ------------------------------------------------------- dimension webinar
+  // "Webinar Cycle Closed" solo esta lleno en los cierres (44 de 806 filas).
+  // Para que el filtro por webinar cubra TAMBIEN las ventas de ticket, se
+  // deduce el evento por fecha: un ticket pertenece al primer webinar que
+  // ocurre en o despues de la compra, dentro de una ventana razonable.
+  var WEBINAR_LOOKAHEAD_DAYS = 45;
+
+  function eventDates() {
+    if (S._events) return S._events;
+    var cfg = S.config.events;
+    var rows = (cfg && S.raw && (S.raw.tabs || {})[cfg.tab]) || [];
+    S._events = rows.map(function (r) { return parseDate(r[cfg.dateField]); })
+      .filter(Boolean)
+      .sort(function (a, b) { return a - b; });
+    return S._events;
+  }
+
+  function webinarFor(date) {
+    if (!date) return '';
+    var evs = eventDates();
+    for (var i = 0; i < evs.length; i++) {
+      var diff = daysBetween(date, evs[i]);
+      if (diff >= -1 && diff <= WEBINAR_LOOKAHEAD_DAYS) return iso(evs[i]);
+    }
+    return '';   // comprado despues del ultimo webinar registrado
+  }
+
+  /** Webinar al que se atribuye una persona. */
+  function webinarOfPerson(p) {
+    if (p._webinar !== undefined) return p._webinar;
+    var declared = (p.raw.closed && String(p.raw.closed['Webinar Cycle Closed'] || '').trim())
+      || (p.raw.ticket && String(p.raw.ticket['Webinar Cycle Closed'] || '').trim()) || '';
+    p._webinar = declared || webinarFor(p.dates.ticket || p.firstSeen) || '';
+    return p._webinar;
+  }
+
+  /** Webinar al que se atribuye un pago concreto. */
+  function webinarOfEvent(e) {
+    if (e.cls === 'entrada') return webinarFor(e.date) || webinarOfPerson(e.person);
+    var declared = e.person.raw.closed
+      && String(e.person.raw.closed['Webinar Cycle Closed'] || '').trim();
+    return declared || webinarOfPerson(e.person) || '';
+  }
+
+  function webinarLabel(v) {
+    if (!v) return 'Unassigned';
+    var d = parseDate(v);
+    return d ? dfmt(d) : v;
+  }
+
+  function allWebinars() {
+    return eventDates().map(function (d) { return iso(d); });
   }
 
   // ------------------------------------------------------------------ charts
@@ -915,8 +997,21 @@
 
   // ------------------------------------------------------------------ RENDER
 
+  function syncWebinarPicker() {
+    var sel = $('#webinarPick');
+    if (!sel) return;
+    var opts = ['<option value="">All webinars</option>'].concat(
+      allWebinars().slice().reverse().map(function (v) {
+        return '<option value="' + esc(v) + '"' + (S.webinar === v ? ' selected' : '') + '>'
+          + esc(webinarLabel(v)) + '</option>';
+      }));
+    sel.innerHTML = opts.join('');
+    sel.parentNode.setAttribute('data-active', S.webinar ? '1' : '0');
+  }
+
   function render() {
     if (!S.config || !S.raw) return;
+    syncWebinarPicker();
     $$('#tabs button').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.getAttribute('data-view') === S.view));
     });
@@ -1197,7 +1292,8 @@
       evs.forEach(function (e) {
         if (b.only && b.only.indexOf(e.cls) === -1 && b.only.indexOf(e.stage && e.stage.id) === -1) return;
         var raw;
-        if (b.attr.stage === '$class') raw = classLabel(e.cls);
+        if (b.attr.stage === '$webinar') raw = webinarLabel(webinarOfEvent(e));
+        else if (b.attr.stage === '$class') raw = classLabel(e.cls);
         else if (b.attr.stage === '$self') raw = e.row[b.attr.field];
         else {
           var row = e.person.raw[b.attr.stage];
@@ -1436,6 +1532,7 @@
     return ((S.raw.tabs || {})[cfg.tab] || [])
       .map(function (r) { return { row: r, date: parseDate(r[cfg.dateField]) }; })
       .filter(function (e) { return e.date && inWindow(e.date, w); })
+      .filter(function (e) { return !S.webinar || iso(e.date) === S.webinar; })
       .sort(function (a, b) { return b.date - a.date; });
   }
 
@@ -1531,7 +1628,13 @@
       // El libro de movimientos se recorre ya clasificado: cada pago dice si
       // fue entrada, deposito, cuota o pago completo.
       if (txCfg && st.id === txCfg.stage) {
+        // BUG: la compra del ticket esta en DOS pestanas (Ticket Buyers y el
+        // libro), con un minuto de diferencia. 220 de 225 pagos <=$100 son el
+        // mismo hecho duplicado. Se muestra solo el de Ticket Buyers, igual
+        // que en el calculo de ingresos.
+        var skipCls = txCfg.revenueSkipClasses || ['entrada'];
         (p.tx || []).forEach(function (t) {
+          if (skipCls.indexOf(t.cls) !== -1) return;
           out.push({
             date: t.date, stage: st, label: classLabel(t.cls),
             amount: t.amount, meta: ''
@@ -1539,6 +1642,10 @@
         });
         return;
       }
+
+      // BUG: la etapa derivada tambien tiene filas en su pestana de origen.
+      // Se emite una sola vez, mas abajo, a partir de p.customerAt.
+      if (st.derived) return;
 
       var amountField = act.amountField || st.map.value;
       (p.rows[st.id] || []).forEach(function (row) {
@@ -1892,7 +1999,7 @@
     var w = currentWindow();
     $$('#rangeSeg button').forEach(function (b) {
       var r = b.getAttribute('data-range');
-      var mine = (S.range === 'all' && r === 'all') || (String(S.range) === r);
+      var mine = String(S.range) === r;
       b.setAttribute('aria-pressed', String(!!mine));
     });
     $('#dateFrom').value = w.from ? iso(w.from) : '';
@@ -1913,7 +2020,7 @@
     $$('#rangeSeg button').forEach(function (b) {
       b.addEventListener('click', function () {
         var r = b.getAttribute('data-range');
-        S.range = r === 'all' ? 'all' : Number(r);
+        S.range = (r === 'all' || r === 'mtd' || r === 'lastmonth') ? r : Number(r);
         S.from = S.to = null;
         S.page = 0;
         $$('#rangeSeg button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
@@ -1936,6 +2043,12 @@
     });
 
     $('#compare').addEventListener('change', function (e) { S.compare = e.target.checked; render(); });
+
+    $('#webinarPick').addEventListener('change', function (e) {
+      S.webinar = e.target.value || '';
+      S.page = 0;
+      render();
+    });
 
     var t;
     $('#search').addEventListener('input', function (e) {
@@ -1973,6 +2086,7 @@
   function applyPayload(payload, isDemo) {
     S.raw = payload;
     S.demo = !!isDemo || !!payload.demo;
+    S._events = null;
     S.people = applyTransactions(normalize(payload));
     S.byKey = Object.create(null);
     S.people.forEach(function (p) { S.byKey[p.key] = p; });

@@ -94,6 +94,8 @@
   <section class="filters" aria-label="Filters">
     <span class="filter-label">Period</span>
     <div class="seg" id="rangeSeg" role="group" aria-label="Date range">
+      <button data-range="mtd" aria-pressed="false">This month</button>
+      <button data-range="lastmonth" aria-pressed="false">Last month</button>
       <button data-range="7"   aria-pressed="false">7d</button>
       <button data-range="30"  aria-pressed="true">30d</button>
       <button data-range="90"  aria-pressed="false">90d</button>
@@ -105,6 +107,11 @@
       <input type="date" id="dateFrom" aria-label="From">
       <span class="dash">→</span>
       <input type="date" id="dateTo" aria-label="To">
+    </div>
+
+    <div class="facet" data-active="0">
+      <label for="webinarPick">Webinar</label>
+      <select id="webinarPick"><option value="">All webinars</option></select>
     </div>
 
     <label class="check" id="compareWrap">

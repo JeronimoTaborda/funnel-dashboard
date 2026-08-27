@@ -509,15 +509,12 @@
       },
       {
         "id": "cohort",
-        "label": "Program revenue by webinar",
+        "label": "Revenue by webinar",
         "attr": {
-          "stage": "closed",
-          "field": "Webinar Cycle Closed"
+          "stage": "$webinar",
+          "field": ""
         },
-        "only": [
-          "closed"
-        ],
-        "desc": "Which webinar cycle each sale closed in."
+        "desc": "Tickets are attributed to the webinar they were bought for; program payments to the cycle they closed in."
       },
       {
         "id": "clase",
@@ -548,12 +545,6 @@
       "label": "Source",
       "stage": "ticket",
       "field": "UTM Source Latest"
-    },
-    {
-      "id": "cohort",
-      "label": "Webinar",
-      "stage": "closed",
-      "field": "Webinar Cycle Closed"
     }
   ],
   "profile": {
