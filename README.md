@@ -486,3 +486,28 @@ Todos viven en `clients/rpa.json` → `metrics`, y se calculan en un solo lugar
   daría un número falso. Las barras se cuentan por separado y se dice.
 - **Quiz: solo la respuesta más reciente** por persona, para que el tier del
   perfil y el del reporte nunca se contradigan.
+
+### Los dos números de dinero, y por qué son distintos
+
+| Tarjeta | De dónde sale | Qué mide |
+|---|---|---|
+| **Money received** | Suma de todos los pagos del periodo (libro + tickets) | **Ingreso total.** Incluye tickets, programa, depósitos, cuotas, renovaciones, downsell y fees. |
+| **Value of program sales** | Columna `Program Revenue` de `Ticket Buyers`, filas con `Closed` en el periodo | **Solo ventas del programa**, al precio firmado. No es caja: puede pagarse en tres meses. Excluye tickets, Roadmap y fees. |
+
+Agosto 2026: entraron **$39.517** en total, de los cuales **$24.665** son
+contratos de REVIVE firmados ese mes.
+
+### Aviso: la columna `Program Revenue` está incompleta en 7 de 62 filas
+
+A veces guarda **una sola cuota** o **solo el depósito** en vez del precio total:
+
+| Valor | Veces | Qué es en realidad |
+|---|---|---|
+| $1.665 | 4 | una de tres cuotas → el contrato es $4.995 |
+| $1.650 | 2 | una cuota (precio viejo) |
+| $500 | 1 | solo el depósito, falta el saldo |
+| $250 | 2 | abono parcial |
+
+El dashboard **no adivina** el precio total. Marca esas filas con la etiqueta
+`instalment only` en la tabla *Who joined* y cuenta cuántas hay en el subtítulo.
+Al corregir la columna en la hoja, el total se ajusta solo.

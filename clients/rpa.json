@@ -801,7 +801,7 @@
       "simple": "Money received",
       "mode": "money",
       "format": "currency",
-      "help": "Every payment charged in this period, from the payment ledger and the ticket tab. Instalments count in the month they are charged."
+      "help": "EVERYTHING that came in during this period: webinar tickets, program payments, deposits, split-pay instalments, renewals, the Roadmap downsell and re-schedule fees. This is your revenue for the period."
     },
     {
       "id": "net",
@@ -840,12 +840,12 @@
     },
     {
       "id": "contract",
-      "label": "Total value of sales",
-      "simple": "Total value of sales",
+      "label": "Program sales signed",
+      "simple": "Value of program sales",
       "mode": "customerSum",
       "field": "contract",
       "format": "currency",
-      "help": "The full agreed price of what those new customers signed, even if they pay it over three months."
+      "help": "Sum of the Program Revenue column for the people who closed in this period. It is what they agreed to pay for REVIVE, not what has been collected yet. It does NOT include webinar tickets, the Roadmap downsell or fees — for the total money that came in, look at Money received."
     },
     {
       "id": "avg",
@@ -855,7 +855,7 @@
       "num": "contract",
       "den": "customers",
       "format": "currency",
-      "help": "Total value of sales divided by the number of new customers."
+      "help": "Value of program sales divided by the number of new customers. Only program sales, not tickets."
     },
     {
       "id": "tickets",
@@ -920,5 +920,11 @@
       "quiz",
       "customers"
     ]
-  }
+  },
+  "contractPartialAmounts": [
+    250,
+    500,
+    1650,
+    1665
+  ]
 }

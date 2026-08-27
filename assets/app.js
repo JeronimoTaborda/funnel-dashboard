@@ -536,6 +536,14 @@
       // Un "contrato" de $497 es el downsell, no el programa: no infla el valor.
       p.contract = ((cfg.customerClasses || []).indexOf(classifyTx(rawContract)) !== -1)
         ? rawContract : 0;
+
+      // La columna Program Revenue a veces trae UNA cuota ($1.665) o solo el
+      // deposito ($500) en vez del precio total. No se adivina el contrato:
+      // se marca, para que se corrija en la hoja.
+      var partials = S.config.contractPartialAmounts || [];
+      p.contractPartial = !!p.contract && partials.some(function (x) {
+        return Math.abs(x - p.contract) < 0.01;
+      });
       p.programCash = 0;
     });
 
@@ -1420,17 +1428,31 @@
           + '<td>' + esc(dfmt(p.customerAt)) + '</td>'
           + '<td class="strong">' + esc(p.name) + '</td>'
           + '<td>' + esc(p.email || '—') + '</td>'
-          + '<td class="num">' + esc(p.contract ? cfmt(p.contract) : '—') + '</td>'
+          + '<td class="num">' + (p.contract ? esc(cfmt(p.contract))
+            + (p.contractPartial ? ' <span class="tag" title="The Program Revenue column '
+              + 'shows one instalment or just the deposit, not the full agreed price">'
+              + 'instalment only</span>' : '')
+            : '\u2014') + '</td>'
           + '<td class="num strong">' + (p.programCash ? esc(cfmt(p.programCash))
             : '<span class="tag" title="Closed per the sheet, no charge in the ledger">no ledger record</span>')
           + '</td></tr>';
       }).join('');
+    var partial = clients.filter(function (p) { return p.contractPartial; });
     host.insertAdjacentHTML('beforeend', card('Who joined in this period',
-      nfmt(clients.length) + ' · ' + cfmt(contract) + ' signed',
+      nfmt(clients.length) + ' · ' + cfmt(contract) + ' signed'
+      + (partial.length ? ' · ' + nfmt(partial.length) + ' incomplete' : ''),
       '<div class="table-scroll"><table class="report-table"><thead><tr>'
       + '<th>Date</th><th>Person</th><th>Email</th><th class="num">Signed for</th>'
       + '<th class="num">Paid so far</th></tr></thead><tbody>' + body + '</tbody></table></div>',
-      'The date is when they became a customer. If Paid so far is lower than Signed for, they still owe instalments.'));
+      'The date is when they became a customer. If Paid so far is lower than Signed for, '
+      + 'they still owe instalments.'
+      + (partial.length ? ' \u26a0 For ' + nfmt(partial.length) + ' of them the Program Revenue '
+        + 'column in the spreadsheet holds a single instalment or just the deposit instead of the '
+        + 'full agreed price, so \u201cValue of program sales\u201d is understated. Fix the column '
+        + 'and it corrects itself.' : '')
+      + (partial.length ? ' \u26a0 For ' + nfmt(partial.length) + ' of them the Program Revenue column in the '
+        + 'spreadsheet holds a single instalment or just the deposit instead of the full agreed price, so '
+        + '\u201cValue of program sales\u201d is understated. Fix the column and it corrects itself.' : '')));
   }
 
   function renderPendingCloses(host, w) {
