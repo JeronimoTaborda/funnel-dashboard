@@ -12,7 +12,8 @@
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 
-  var VIEWS = ['resumen', 'ventas', 'personas', 'webinars'];
+  var VIEWS = ['dashboard', 'personas', 'webinars'];
+  var VIEW_ALIAS = { resumen: 'dashboard', ventas: 'dashboard' };   // enlaces viejos
 
   // ------------------------------------------------------------------ estado
   var S = {
@@ -22,7 +23,7 @@
     people: [],
     byKey: Object.create(null),
 
-    view: 'resumen',
+    view: 'dashboard',
     mode: 'simple',   // 'simple' para el cliente | 'detailed' para el equipo
     range: 30,           // numero de dias | 'all' | 'custom'
     from: null,          // Date | null
@@ -1115,6 +1116,104 @@
   function money(n) { return '<strong>' + esc(cfmt(n)) + '</strong>'; }
   function count(n) { return '<strong>' + esc(nfmt(n)) + '</strong>'; }
 
+
+  // ------------------------------------------------------------- metricas
+  // El modelo por persona (una fecha y un total por etapa) sirve para el
+  // directorio, pero no para reportes por periodo: quien compro un ticket en
+  // junio y otro en agosto quedaba registrado solo en junio, con los dos pagos
+  // sumados ahi. Por eso los reportes cuentan FILAS, no personas.
+  //
+  //   rows            - una fila = un evento. "Tickets vendidos".
+  //   latestPerPerson - solo la respuesta MAS RECIENTE de cada persona.
+  //   customers       - personas que se volvieron clientes. Una cuota no es
+  //                     una venta nueva.
+  //   money / net / roas / customerSum / ratio - dinero.
+
+  function stageRowsIn(stageId, w, where) {
+    var st = stageById(stageId);
+    if (!st) return [];
+    var out = [];
+    S.people.forEach(function (p) {
+      (p.rows[stageId] || []).forEach(function (row) {
+        if (where && !matchesWhen(row, where)) return;
+        var d = rowDate(row, st);
+        if (!d || !inWindow(d, w)) return;
+        if (S.webinar && webinarFor(d) !== S.webinar) return;
+        out.push({ row: row, date: d, person: p });
+      });
+    });
+    return out;
+  }
+
+  /** Ultima respuesta de cada persona en esa etapa, si cae en la ventana. */
+  function latestPerPersonIn(stageId, w, where) {
+    var st = stageById(stageId);
+    if (!st) return [];
+    var out = [];
+    S.people.forEach(function (p) {
+      var best = null;
+      (p.rows[stageId] || []).forEach(function (row) {
+        var d = rowDate(row, st);
+        if (!d) return;
+        if (!best || d > best.date) best = { row: row, date: d, person: p };
+      });
+      if (!best) return;
+      if (where && !matchesWhen(best.row, where)) return;
+      if (!inWindow(best.date, w)) return;
+      if (S.webinar && webinarOfPerson(p) !== S.webinar) return;
+      out.push(best);
+    });
+    return out;
+  }
+
+  function metricById(id) {
+    return (S.config.metrics || []).filter(function (m) { return m.id === id; })[0] || null;
+  }
+
+  /** Valor numerico crudo de una metrica. Un solo lugar donde se calcula. */
+  function metricValue(id, w, evsCache) {
+    var m = metricById(id);
+    if (!m) return null;
+    var evs = evsCache || revenueEvents(w);
+
+    switch (m.mode) {
+      case 'money':
+        return sumBy(evs, m.classes || null);
+      case 'net': {
+        var s = adSpendIn(w);
+        return s == null ? null : sumBy(evs) - s;
+      }
+      case 'roas': {
+        var sp = adSpendIn(w);
+        return (sp && sp > 0) ? sumBy(evs) / sp : null;
+      }
+      case 'rows':
+        return stageRowsIn(m.stage, w, m.where).length;
+      case 'latestPerPerson':
+        return latestPerPersonIn(m.stage, w, m.where).length;
+      case 'customers':
+        return newCustomers(w).length;
+      case 'customerSum':
+        return newCustomers(w).reduce(function (a, p) { return a + (p[m.field] || 0); }, 0);
+      case 'ratio': {
+        var n = metricValue(m.num, w, evs), dd = metricValue(m.den, w, evs);
+        return (dd && n != null) ? n / dd : null;
+      }
+    }
+    return null;
+  }
+
+  function metricText(id, w, evs) {
+    var m = metricById(id);
+    var v = metricValue(id, w, evs);
+    if (v == null) return '—';
+    if (m.format === 'currency') return cfmt(v);
+    if (m.id === 'roas') {
+      return simpleMode() ? '$' + (Math.round(v * 100) / 100).toFixed(2) : xfmt(v);
+    }
+    return nfmt(Math.round(v * 100) / 100);
+  }
+
   // ------------------------------------------------------------- componentes
 
   function kpiCard(label, value, sub, delta, help) {
@@ -1170,22 +1269,20 @@
       b.setAttribute('aria-pressed', String(b.getAttribute('data-mode') === S.mode));
     });
     $('#btnExportLabel').textContent =
-      S.view === 'ventas' ? 'Revenue CSV' : (S.view === 'webinars' ? 'Webinar CSV' : 'People CSV');
+      S.view === 'dashboard' ? 'Payments CSV' : (S.view === 'webinars' ? 'Webinar CSV' : 'People CSV');
 
     var w = currentWindow();
     var notes = {
-      resumen: 'Cohort by first-contact date',
-      personas: 'Cohort by first-contact date',
-      ventas: 'Revenue by payment date',
-      webinars: 'Events by webinar date'
+      dashboard: 'Everything that happened in this period',
+      personas: 'People whose first contact falls in this period',
+      webinars: 'Webinars held in this period'
     };
     $('#periodNote').textContent = notes[S.view] + ' · ' + windowLabel(w)
       + (S.compare && prevWindow() ? ' · compared to ' + windowLabel(prevWindow()) : '');
 
     var host = $('#view');
     host.innerHTML = '';
-    if (S.view === 'resumen') renderResumen(host, w);
-    else if (S.view === 'ventas') renderVentas(host, w);
+    if (S.view === 'dashboard') renderDashboard(host, w);
     else if (S.view === 'personas') renderPersonas(host, w);
     else renderWebinars(host, w);
 
@@ -1193,300 +1290,106 @@
     renderFooter();
   }
 
-  // --- Vista: Resumen -------------------------------------------------------
+  // --- Vista: Dashboard (dinero + actividad en un solo lugar) --------------
+  // Antes eran dos pantallas, Overview y Revenue, y se contradijeron dos veces
+  // porque cada una contaba distinto. Ahora cada numero se calcula en un solo
+  // sitio (metricValue) y se muestra una sola vez.
 
-  function renderResumen(host, w) {
-    // Los KPI cuentan lo que PASO en el periodo (coincide con la vista Revenue).
-    var everyone = poolFor({ from: null, to: null });
-    var counts = stageCounts(everyone, 'activity', w);
-    var pw = prevWindow();
-    var prevCounts = (S.compare && pw) ? stageCounts(everyone, 'activity', pw) : null;
-
-    // El embudo es una cohorte: solo la gente que entro en el periodo.
-    var pool = poolFor(w);
-    var fd = funnelData(pool);
-
-    // --- KPIs
-    var kpis = visible(S.config.kpis || []).map(function (k) {
-      var value = '—', sub = '', dl = null;
-
-      if (k.type === 'stageCount') {
-        var f = counts[k.stage];
-        value = nfmt(f ? f.count : 0);
-        var base = counts[funnelStages()[0].id];
-        if (f && base && base.id !== f.id && base.count) {
-          sub = pfmt(pct(f.count, base.count), 1)
-            + (simpleMode() ? ' of ticket buyers' : ' of \u201c' + base.short + '\u201d');
-        }
-        dl = prevCounts ? delta(f ? f.count : 0, prevCounts[k.stage] ? prevCounts[k.stage].count : 0) : null;
-
-      } else if (k.type === 'stageValue') {
-        var fv = counts[k.stage], total = fv ? fv.value : 0;
-        value = k.format === 'currency' ? cfmt(total) : nfmt(total);
-        if (fv && fv.count) sub = 'Avg ' + cfmt(total / fv.count);
-        dl = prevCounts ? delta(total, prevCounts[k.stage] ? prevCounts[k.stage].value : 0) : null;
-
-      } else if (k.type === 'rate') {
-        var cohort = stageCounts(pool, 'cohort');
-        var a = cohort[k.from], b = cohort[k.to];
-        var r = a && b ? pct(b.count, a.count) : 0;
-        value = '<span>' + (Math.round(r * 10) / 10) + '</span><span class="unit">%</span>';
-        sub = (b ? nfmt(b.count) : 0) + ' of ' + (a ? nfmt(a.count) : 0);
-        if (S.compare && pw) {
-          var pc = stageCounts(poolFor(pw), 'cohort');
-          var pa = pc[k.from], pb = pc[k.to];
-          dl = delta(r, pa && pb ? pct(pb.count, pa.count) : 0);
-        }
-        sub += ' \u00b7 of this period\u2019s new people';
-      }
-      return kpiCard(lbl(k), value, sub, dl, k.help);
-    }).join('');
-
-    // Una frase antes de los numeros: el cliente entiende el mes de un vistazo.
-    var fs = funnelStages();
-    var entry = counts[fs[0].id], last = counts[fs[fs.length - 1].id];
-    if (simpleMode() && entry) {
-      host.insertAdjacentHTML('beforeend', headline(
-        count(entry.count) + ' people bought a webinar ticket in this period, and '
-        + count(last.count) + ' ' + (last.count === 1 ? 'person' : 'people')
-        + ' joined the program.'));
-    }
-    host.insertAdjacentHTML('beforeend', '<section class="kpis">' + kpis + '</section>');
-
-    // --- Embudo
-    var max = Math.max.apply(null, fd.map(function (f) { return f.count; }).concat([1]));
-    var top = fd[0] ? fd[0].count : 0;
-    var rows = fd.map(function (f, i) {
-      var wd = Math.max((f.count / max) * 88, f.count > 0 ? 1.5 : 0);
-      var prev = i > 0 ? fd[i - 1].count : null;
-      var step = prev == null ? null : pct(f.count, prev);
-      var lost = prev == null ? 0 : prev - f.count;
-      var bad = step != null && step < 40 && prev > 0;
-      return '<div class="funnel-row" role="button" tabindex="0" data-stage="' + esc(f.id) + '">'
-        + '<div class="funnel-name">' + esc(lbl(stageById(f.id)) || f.label)
-        + (i === 0 ? '<small>funnel entry</small>'
-          : '<small>' + (lost > 0 ? '\u2212' + nfmt(lost) + ' people' : 'no drop') + '</small>') + '</div>'
-        + '<div class="funnel-track">'
-        + '<div class="funnel-bar" style="width:' + wd.toFixed(2) + '%;background:' + BAR + '"></div>'
-        + '<div class="funnel-inline" style="left:' + wd.toFixed(2) + '%">' + nfmt(f.count) + '</div></div>'
-        + '<div class="funnel-metrics">'
-        + '<div class="funnel-step">' + (step == null ? '100%' : pfmt(step, 1)) + '</div>'
-        + '<div class="funnel-total">' + pfmt(pct(f.count, top), 1) + ' of total</div>'
-        + (bad ? '<div class="funnel-drop bad">\u25be High drop-off</div>' : '')
-        + '</div></div>';
-    }).join('');
-
-    var fTable = '<details class="table-toggle"><summary>View as table</summary>'
-      + '<table class="datatable"><thead><tr><th>Stage</th><th>People</th>'
-      + '<th>Conv. from previous</th><th>Conv. from top</th></tr></thead><tbody>'
-      + fd.map(function (f, i) {
-        var prev = i > 0 ? fd[i - 1].count : null;
-        return '<tr><td>' + esc(f.label) + '</td><td>' + nfmt(f.count) + '</td><td>'
-          + (prev == null ? '100%' : pfmt(pct(f.count, prev), 1)) + '</td><td>'
-          + pfmt(pct(f.count, top), 1) + '</td></tr>';
-      }).join('') + '</tbody></table></details>';
-
-    host.insertAdjacentHTML('beforeend', card(
-      simpleMode() ? 'How this period\u2019s new people are progressing' : 'Conversion funnel (cohort)',
-      nfmt(pool.length) + ' people first seen in this period',
-      '<div class="funnel">' + rows + '</div>' + fTable,
-      'This follows ONLY the people who first appeared in this period, and shows how far they have got so far. '
-      + 'It is a different question from the numbers above: someone who joined the program this month but bought '
-      + 'their ticket in June counts in the cards above, not here. Click a step to see exactly who they are.'));
-
-    $$('#view .funnel-row').forEach(function (row) {
-      var go = function () {
-        S.stageFilter = row.getAttribute('data-stage');
-        S.view = 'personas'; S.page = 0;
-        syncHash(); render();
-      };
-      row.addEventListener('click', go);
-      row.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
-      });
-    });
-
-    // --- Evolución (small multiples: una escala por etapa, nunca dos ejes)
-    var bk = buckets(w);
-    host.insertAdjacentHTML('beforeend', card(
-      simpleMode() ? 'Day by day' : 'Trend over time',
-      bk.bucketDays === 1 ? 'by day' : (bk.bucketDays === 7 ? 'by week' : 'by month'),
-      '<div class="grid-2" id="trendGrid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px"></div>',
-      simpleMode()
-        ? 'How many people reached each step, day by day.'
-        : 'How many people entered each stage over the selected period.'));
-
-    var grid = $('#trendGrid');
-    funnelStages().forEach(function (st) {
-      var vals = bucketize(bk, pool, function (p) { return p.dates[st.id]; });
-      var total = vals.reduce(function (a, v) { return a + v; }, 0);
-      var box = document.createElement('div');
-      box.style.minWidth = '0';
-      box.innerHTML = '<div style="font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:1px">'
-        + esc(lbl(st)) + '</div>'
-        + '<div style="font-size:11.5px;color:var(--ink-muted);margin-bottom:6px;font-variant-numeric:tabular-nums">'
-        + nfmt(total) + ' in period</div>';
-      grid.appendChild(box);
-      drawSpark(box, { label: lbl(st), values: vals, total: total }, bk.list, bk.bucketDays);
-    });
-
-    // --- Segmentos
-    renderSegments(host, pool);
-  }
-
-  function renderSegments(host, pool) {
-    var wrap = document.createElement('section');
-    wrap.className = 'grid-2';
-    wrap.style.marginTop = '20px';
-    host.appendChild(wrap);
-
-    visible(S.config.segments || []).forEach(function (seg) {
-      var g = makeGrouper(), counts = Object.create(null), withData = 0;
-      pool.forEach(function (p) {
-        var row = p.raw[seg.stage];
-        if (!row) return;
-        var v = String(row[seg.field] == null ? '' : row[seg.field]).trim();
-        if (!v) return;
-        withData++;
-        (seg.multi ? v.split(/\s*,\s*/) : [v]).forEach(function (x) {
-          var k = g.add(x, 1);
-          if (k) counts[k] = (counts[k] || 0) + 1;
-        });
-      });
-
-      var items = Object.keys(counts).map(function (k) { return { key: g.label(k), count: counts[k] }; });
-      if (seg.sort === 'key') items.sort(function (a, b) { return a.key.localeCompare(b.key, undefined, { numeric: true }); });
-      else items.sort(function (a, b) { return b.count - a.count; });
-      items = foldTail(items, 10);
-
-      var el = document.createElement('div');
-      el.className = 'card';
-      el.style.marginBottom = '0';
-      el.innerHTML = '<div class="card-head"><div class="card-title">' + esc(seg.label) + '</div>'
-        + '<div class="card-note">' + nfmt(withData) + ' responses</div></div><div class="slot"></div>';
-      wrap.appendChild(el);
-
-      var slot = el.querySelector('.slot');
-      if (!items.length) { slot.innerHTML = '<div class="empty">No data in this period</div>'; return; }
-      drawBars(slot, items, withData, seg.label, {});
-    });
-  }
-
-  // --- Vista: Ventas --------------------------------------------------------
-
-  function renderVentas(host, w) {
-    var sales = S.config.sales || {};
-    var cfg = txConfig() || {};
+  function renderDashboard(host, w) {
+    var dash = S.config.dashboard || {};
     var evs = revenueEvents(w);
     var pw = prevWindow();
     var prevEvs = (S.compare && pw) ? revenueEvents(pw) : null;
-
-    var progClasses = cfg.programClasses || cfg.customerClasses || ['programa', 'deposito'];
-    var clients = newCustomers(w);
-    var prevClients = (S.compare && pw) ? newCustomers(pw) : null;
-
-    var total = sumBy(evs);
-    var prog = sumBy(evs, progClasses);
-    var entradas = sumBy(evs, ['entrada']);
-    var down = sumBy(evs, ['roadmap']);
-    var contract = clients.reduce(function (a, p) { return a + (p.contract || 0); }, 0);
-
-    function prevOf(fn) { return prevEvs ? fn(prevEvs) : null; }
-
     var simple = simpleMode();
-    var kpis = [
-      kpiCard(simple ? 'Money received' : 'Cash collected', cfmt(total),
-        nfmt(evs.length) + ' payments in period',
-        delta(total, prevOf(function (e) { return sumBy(e); })),
-        'Every payment that actually landed in this period \u2014 tickets, deposits and program payments. Monthly instalments count in the month they are charged.'),
 
-      kpiCard(simple ? 'From the program' : 'Program cash', cfmt(prog),
-        'deposits, instalments and full payments',
-        delta(prog, prevOf(function (e) { return sumBy(e, progClasses); })),
-        'The part of the money that came from REVIVE, not from webinar tickets.'),
-
-      kpiCard(simple ? 'People who joined' : 'New customers', nfmt(clients.length),
-        'first program payment in period',
-        prevClients ? delta(clients.length, prevClients.length) : null,
-        'People whose FIRST program payment happened in this period. Someone paying their second instalment is not counted again.'),
-
-      kpiCard(simple ? 'Total value of new sales' : 'Contract value signed', cfmt(contract),
-        'from new customers in period',
-        prevClients ? delta(contract, prevClients.reduce(function (a, p) {
-          return a + (p.contract || 0);
-        }, 0)) : null,
-        'The full agreed price of what was sold, even if the customer pays it over three months.'),
-
-      kpiCard(simple ? 'Average sale' : 'Average deal size',
-        clients.length ? cfmt(contract / clients.length) : '\u2014',
-        'contract value \u00f7 new customers', null,
-        'On average, how much each new customer agreed to pay in total.'),
-
-      kpiCard(simple ? 'From webinar tickets' : 'Ticket sales', cfmt(entradas),
-        nfmt(countBy(evs, ['entrada'])) + ' tickets'
-          + (down ? ' \u00b7 downsell ' + cfmt(down) : ''),
-        delta(entradas, prevOf(function (e) { return sumBy(e, ['entrada']); })),
-        'Money from the $29 webinar seats and the workshop tickets.')
-    ];
-
-    // Rentabilidad: la caja sola no dice si el mes fue bueno.
-    var spend = adSpendIn(w);
-    var prevSpend = (S.compare && pw) ? adSpendIn(pw) : null;
-    if (spend != null && spend > 0) {
-      var net = total - spend;
-      var prevNet = (prevEvs && prevSpend) ? sumBy(prevEvs) - prevSpend : null;
-      kpis.splice(1, 0,
-        kpiCard(simple ? 'Money kept after ads' : 'Net after ad spend', cfmt(net),
-          cfmt(total) + ' in \u2212 ' + cfmt(spend) + ' on ads',
-          delta(net, prevNet),
-          'What is left after paying for advertising. It does not subtract salaries, software or other costs.'),
-        kpiCard(simple ? 'Back per $1 of ads' : 'ROAS',
-          simple ? '$' + (Math.round((total / spend) * 100) / 100).toFixed(2) : xfmt(total / spend),
-          simple ? 'for every $1 spent on ads' : 'cash collected \u00f7 ad spend',
-          delta(total / spend, (prevEvs && prevSpend) ? sumBy(prevEvs) / prevSpend : null),
-          'For every dollar spent on ads, this is how many dollars came back. Above 1 means the advertising paid for itself.'));
+    function cards(ids) {
+      return (ids || []).map(function (id) {
+        var m = metricById(id);
+        if (!m) return '';
+        var v = metricValue(id, w, evs);
+        if (v == null && (m.mode === 'net' || m.mode === 'roas')) return '';
+        var dl = null;
+        if (prevEvs) {
+          var pv = metricValue(id, pw, prevEvs);
+          if (pv != null) dl = delta(v || 0, pv);
+        }
+        return kpiCard(lbl(m), metricText(id, w, evs), subFor(id, w, evs), dl, m.help);
+      }).join('');
     }
-    kpis = kpis.join('');
 
-    if (simple) {
-      var line = money(total) + ' came in during this period';
-      if (spend != null && spend > 0) {
-        line += ', and after ' + money(spend) + ' spent on ads you kept ' + money(total - spend);
+    function subFor(id, w2, evs2) {
+      if (id === 'cash') return nfmt(evs2.length) + ' payments';
+      if (id === 'net') {
+        var s = adSpendIn(w2);
+        return s == null ? '' : cfmt(sumBy(evs2)) + ' in − ' + cfmt(s) + ' on ads';
       }
-      line += '. ' + count(clients.length) + ' '
-        + (clients.length === 1 ? 'person' : 'people') + ' joined the program';
-      if (contract) line += ', worth ' + money(contract) + ' in total sales';
+      if (id === 'roas') return 'for every $1 spent on ads';
+      if (id === 'tickets') {
+        var n = metricValue('tickets', w2, evs2);
+        return n ? 'avg ' + cfmt(metricValue('ticketcash', w2, evs2) / n) + ' each' : '';
+      }
+      if (id === 'customers') return 'deposits, split pay and full payments';
+      if (id === 'contract') return 'signed by those new customers';
+      if (id === 'avg') return 'per new customer';
+      if (id === 'quiz') return 'latest answer per person';
+      if (id === 'hot') return 'ready to start now';
+      if (id === 'progcash') return 'REVIVE only, tickets excluded';
+      if (id === 'ticketcash') return nfmt(metricValue('tickets', w2, evs2)) + ' tickets';
+      return '';
+    }
+
+    // --- frase de portada
+    if (simple) {
+      var cash = metricValue('cash', w, evs), spend = adSpendIn(w);
+      var cust = metricValue('customers', w, evs);
+      var line = money(cash) + ' came in';
+      if (spend != null && spend > 0) line += ', and after ' + money(spend) + ' on ads you kept ' + money(cash - spend);
+      line += '. ' + count(cust) + ' ' + (cust === 1 ? 'person' : 'people') + ' joined the program';
+      var ct = metricValue('contract', w, evs);
+      if (ct) line += ', worth ' + money(ct) + ' in signed sales';
       line += '.';
       host.insertAdjacentHTML('beforeend', headline(line));
     }
 
-    host.insertAdjacentHTML('beforeend', '<section class="kpis">' + kpis + '</section>');
-
+    host.insertAdjacentHTML('beforeend', '<section class="kpis">' + cards(dash.money) + '</section>');
     host.insertAdjacentHTML('beforeend',
-      '<p class="card-desc" style="margin:-8px 0 18px">'
-      + (spend == null ? '<strong>Ad spend:</strong> no webinar falls inside this period, '
-        + 'so net and ROAS are not shown. Ad spend is only recorded per webinar in the Event Tracker. ' : '')
-      + (simple ? '' : '<strong>Cash collected</strong> is money that actually came in \u2014 split-pay instalments land every month. '
-      + '<strong>Contract value</strong> is what was signed, in full, on the day of the close. '
-      + 'A 3 \u00d7 $1,665 customer counts as one customer and $4,995 of contract, '
-      + 'but their cash arrives across three months.') + '</p>');
+      '<section class="kpis" style="margin-top:-8px">' + cards(dash.activity) + '</section>');
 
-    // --- Ingresos en el tiempo (una escala por serie)
+    // --- qué pasó, paso por paso (conteos del periodo, sin % engañosos)
+    var steps = (dash.steps || []).map(function (id) {
+      return { m: metricById(id), v: metricValue(id, w, evs) || 0 };
+    }).filter(function (s) { return s.m; });
+
+    if (steps.length) {
+      var max = Math.max.apply(null, steps.map(function (s) { return s.v; }).concat([1]));
+      var rows = steps.map(function (s) {
+        var wd = Math.max((s.v / max) * 88, s.v > 0 ? 1.5 : 0);
+        return '<div class="funnel-row" style="cursor:default">'
+          + '<div class="funnel-name">' + esc(lbl(s.m)) + '</div>'
+          + '<div class="funnel-track">'
+          + '<div class="funnel-bar" style="width:' + wd.toFixed(2) + '%;background:' + BAR + '"></div>'
+          + '<div class="funnel-inline" style="left:' + wd.toFixed(2) + '%">' + nfmt(s.v) + '</div>'
+          + '</div><div class="funnel-metrics"></div></div>';
+      }).join('');
+      host.insertAdjacentHTML('beforeend', card(
+        simple ? 'What happened in this period' : 'Activity in this period',
+        '', '<div class="funnel">' + rows + '</div>',
+        'Each bar is counted independently inside the period. They are NOT a conversion rate: '
+        + 'most people who joined this month bought their ticket in an earlier month, so dividing '
+        + 'one bar by another would be wrong.'));
+    }
+
+    // --- dinero en el tiempo
     var bk = buckets(w);
+    var progClasses = (txConfig() || {}).programClasses || ['deposito', 'programa', 'renewal'];
     host.insertAdjacentHTML('beforeend', card('Cash collected over time',
       bk.bucketDays === 1 ? 'by day' : (bk.bucketDays === 7 ? 'by week' : 'by month'),
       '<div class="grid-2" id="revGrid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px"></div>',
-      'Every payment counts on the date it was charged, not the date the person entered the funnel.'));
-
+      'Every payment counts on the date it was charged.'));
     var rg = $('#revGrid');
-    var series = [
-      { cls: null, label: 'Total cash' },
-      { cls: progClasses, label: 'Program' },
-      { cls: ['entrada'], label: 'Tickets' }
-    ];
-    if (down) series.push({ cls: ['roadmap'], label: 'Roadmap downsell' });
-
-    series.forEach(function (sr) {
+    [{ cls: null, label: 'Total cash' },
+     { cls: progClasses, label: 'Program' },
+     { cls: ['entrada'], label: 'Tickets' }].forEach(function (sr) {
       var subset = sr.cls ? evs.filter(function (e) { return sr.cls.indexOf(e.cls) !== -1; }) : evs;
       var vals = bucketize(bk, subset, function (e) { return e.date; }, function (e) { return e.amount; });
       var tot = vals.reduce(function (a, v) { return a + v; }, 0);
@@ -1500,16 +1403,70 @@
       drawSpark(box, { label: sr.label, values: vals, total: tot }, bk.list, bk.bucketDays, cfmt);
     });
 
-    // --- Desgloses
+    renderNewCustomers(host, w, evs);
+    renderPendingCloses(host, w);
+    renderBreakdowns(host, w, evs);
+    if (!simple) renderSegments(host, poolFor(w));
+    renderLedger(host, w, evs);
+  }
+
+  function renderNewCustomers(host, w, evs) {
+    var clients = newCustomers(w);
+    if (!clients.length) return;
+    var contract = clients.reduce(function (a, p) { return a + (p.contract || 0); }, 0);
+    var body = clients.slice().sort(function (a, b) { return b.customerAt - a.customerAt; })
+      .map(function (p) {
+        return '<tr class="clickable" data-key="' + esc(p.key) + '">'
+          + '<td>' + esc(dfmt(p.customerAt)) + '</td>'
+          + '<td class="strong">' + esc(p.name) + '</td>'
+          + '<td>' + esc(p.email || '—') + '</td>'
+          + '<td class="num">' + esc(p.contract ? cfmt(p.contract) : '—') + '</td>'
+          + '<td class="num strong">' + (p.programCash ? esc(cfmt(p.programCash))
+            : '<span class="tag" title="Closed per the sheet, no charge in the ledger">no ledger record</span>')
+          + '</td></tr>';
+      }).join('');
+    host.insertAdjacentHTML('beforeend', card('Who joined in this period',
+      nfmt(clients.length) + ' · ' + cfmt(contract) + ' signed',
+      '<div class="table-scroll"><table class="report-table"><thead><tr>'
+      + '<th>Date</th><th>Person</th><th>Email</th><th class="num">Signed for</th>'
+      + '<th class="num">Paid so far</th></tr></thead><tbody>' + body + '</tbody></table></div>',
+      'The date is when they became a customer. If Paid so far is lower than Signed for, they still owe instalments.'));
+  }
+
+  function renderPendingCloses(host, w) {
+    var pend = S.people.filter(function (x) {
+      if (!x.pendingClose || !x.pendingCloseAt) return false;
+      if (!inWindow(x.pendingCloseAt, w)) return false;
+      return !S.webinar || webinarOfPerson(x) === S.webinar;
+    });
+    if (!pend.length) return;
+    var tot = pend.reduce(function (a, x) { return a + (x.pendingCloseAmount || 0); }, 0);
+    host.insertAdjacentHTML('beforeend', card('Program payments with no close recorded',
+      nfmt(pend.length) + ' · ' + cfmt(tot),
+      '<div class="table-scroll"><table class="report-table"><thead><tr>'
+      + '<th>Date</th><th>Person</th><th>Email</th><th class="num">Paid</th></tr></thead><tbody>'
+      + pend.sort(function (a, b) { return b.pendingCloseAt - a.pendingCloseAt; }).map(function (x) {
+          return '<tr class="clickable" data-key="' + esc(x.key) + '">'
+            + '<td>' + esc(dfmt(x.pendingCloseAt)) + '</td>'
+            + '<td class="strong">' + esc(x.name) + '</td>'
+            + '<td>' + esc(x.email || '—') + '</td>'
+            + '<td class="num strong">' + esc(cfmt(x.pendingCloseAmount || 0)) + '</td></tr>';
+        }).join('')
+      + '</tbody></table></div>',
+      'These people paid for REVIVE but the Closed column in the spreadsheet is still empty, so they are '
+      + 'NOT counted as customers above. Mark them as closed in the sheet and they appear automatically.'));
+  }
+
+  function renderBreakdowns(host, w, evs) {
     var brk = document.createElement('section');
     brk.className = 'grid-2';
     brk.style.marginTop = '20px';
     host.appendChild(brk);
 
-    visible(sales.breakdowns || []).forEach(function (b) {
+    visible((S.config.sales || {}).breakdowns || []).forEach(function (b) {
       var g = makeGrouper(), acc = Object.create(null), people = Object.create(null);
       evs.forEach(function (e) {
-        if (b.only && b.only.indexOf(e.cls) === -1 && b.only.indexOf(e.stage && e.stage.id) === -1) return;
+        if (b.only && b.only.indexOf(e.cls) === -1) return;
         var raw;
         if (b.attr.stage === '$webinar') raw = webinarLabel(webinarOfEvent(e));
         else if (b.attr.stage === '$class') raw = classLabel(e.cls);
@@ -1522,80 +1479,28 @@
         acc[k] = (acc[k] || 0) + e.amount;
         (people[k] || (people[k] = Object.create(null)))[e.person.key] = 1;
       });
-
       var items = Object.keys(acc).map(function (k) {
         return { key: k === '(no data)' ? k : g.label(k), count: acc[k], n: Object.keys(people[k]).length };
       }).sort(function (x, y) { return y.count - x.count; });
       items = foldTail(items, 10);
-
       var sum = items.reduce(function (a, i) { return a + i.count; }, 0);
+
       var el = document.createElement('div');
       el.className = 'card';
       el.style.marginBottom = '0';
       el.innerHTML = '<div class="card-head"><div class="card-title">' + esc(b.label) + '</div>'
         + '<div class="card-note">' + cfmt(sum) + '</div></div>'
-        + (b.desc ? '<p class="card-desc">' + esc(b.desc) + '</p>' : '')
-        + '<div class="slot"></div>';
+        + (b.desc ? '<p class="card-desc">' + esc(b.desc) + '</p>' : '') + '<div class="slot"></div>';
       brk.appendChild(el);
       var slot = el.querySelector('.slot');
       if (!items.length) { slot.innerHTML = '<div class="empty">No revenue in this period</div>'; return; }
       drawBars(slot, items, sum, b.label, { fmt: cfmt, valueLabel: 'Revenue' });
     });
+  }
 
-    // --- Clientes nuevos del periodo
-    if (clients.length) {
-      var cbody = clients.slice().sort(function (a, b) { return b.customerAt - a.customerAt; })
-        .map(function (p) {
-          return '<tr class="clickable" data-key="' + esc(p.key) + '">'
-            + '<td>' + esc(dfmt(p.customerAt)) + '</td>'
-            + '<td class="strong">' + esc(p.name) + '</td>'
-            + '<td>' + esc(p.email || '—') + '</td>'
-            + '<td class="num">' + esc(p.contract ? cfmt(p.contract) : '—') + '</td>'
-            + '<td class="num strong">' + esc(p.programCash ? cfmt(p.programCash) : '—') + '</td>'
-            + '<td>' + esc((p.raw.closed && p.raw.closed['Webinar Cycle Closed']) || '—') + '</td></tr>';
-        }).join('');
-
-      host.insertAdjacentHTML('beforeend', card('New customers in period',
-        nfmt(clients.length) + ' \u00b7 ' + cfmt(contract) + ' in contracts',
-        '<div class="table-scroll"><table class="report-table"><thead><tr>'
-        + '<th>Date</th><th>Person</th><th>Email</th><th class="num">Contract</th>'
-        + '<th class="num">Collected</th><th>Webinar</th></tr></thead><tbody>' + cbody
-        + '</tbody></table></div>',
-        'The date is their first program payment or deposit. If Collected is lower than Contract, they still owe instalments.'));
-    }
-
-    // --- Pagos del programa sin cierre marcado en la hoja
-    var pend = S.people.filter(function (x) {
-      if (!x.pendingClose || !x.pendingCloseAt) return false;
-      if (!inWindow(x.pendingCloseAt, w)) return false;
-      return !S.webinar || webinarOfPerson(x) === S.webinar;
-    });
-    if (pend.length) {
-      var pendTotal = pend.reduce(function (a, x) { return a + (x.pendingCloseAmount || 0); }, 0);
-      host.insertAdjacentHTML('beforeend', card(
-        'Program payments with no close recorded',
-        nfmt(pend.length) + ' \u00b7 ' + cfmt(pendTotal),
-        '<div class="table-scroll"><table class="report-table"><thead><tr>'
-        + '<th>Date</th><th>Person</th><th>Email</th><th class="num">Paid</th></tr></thead><tbody>'
-        + pend.sort(function (a, b) { return b.pendingCloseAt - a.pendingCloseAt; })
-          .map(function (x) {
-            return '<tr class="clickable" data-key="' + esc(x.key) + '">'
-              + '<td>' + esc(dfmt(x.pendingCloseAt)) + '</td>'
-              + '<td class="strong">' + esc(x.name) + '</td>'
-              + '<td>' + esc(x.email || '\u2014') + '</td>'
-              + '<td class="num strong">' + esc(cfmt(x.pendingCloseAmount || 0)) + '</td></tr>';
-          }).join('')
-        + '</tbody></table></div>',
-        'These people paid for REVIVE but the Closed column in the spreadsheet is still empty, '
-        + 'so they are NOT counted as customers above. Mark them as closed in the sheet and they '
-        + 'will appear automatically.'));
-      $$('#view .report-table tr.clickable').forEach(function (tr) {
-        tr.addEventListener('click', function () { openProfile(tr.getAttribute('data-key')); });
-      });
-    }
-
-    // --- Ledger
+  function renderLedger(host, w, evs) {
     var LIMIT = 150;
+    var total = sumBy(evs);
     var body = evs.slice(0, LIMIT).map(function (e) {
       return '<tr class="clickable" data-key="' + esc(e.person.key) + '">'
         + '<td>' + esc(dfmt(e.date, true)) + '</td>'
@@ -1604,9 +1509,8 @@
         + '<td>' + esc(e.label) + '</td>'
         + '<td class="num strong">' + esc(cfmt(e.amount)) + '</td></tr>';
     }).join('');
-
-    host.insertAdjacentHTML('beforeend', card('All payments in period',
-      nfmt(evs.length) + ' payments \u00b7 ' + cfmt(total),
+    host.insertAdjacentHTML('beforeend', card('Every payment in this period',
+      nfmt(evs.length) + ' payments · ' + cfmt(total),
       '<div class="table-scroll"><table class="report-table"><thead><tr>'
       + '<th>Date</th><th>Person</th><th>Email</th><th>Type</th><th class="num">Amount</th>'
       + '</tr></thead><tbody>' + (body || '<tr><td colspan="5" class="empty">No payments in this period.</td></tr>')
@@ -1614,7 +1518,7 @@
       + '</td></tr></tfoot></table></div>'
       + (evs.length > LIMIT ? '<p class="card-desc" style="margin:12px 0 0">Showing the '
         + LIMIT + ' most recent of ' + nfmt(evs.length) + '. The CSV includes all of them.</p>' : ''),
-      'Each row is one charge. Split-pay instalments appear once a month.'));
+      'One row per charge. A split-pay instalment appears once a month — it is a payment, not a new sale.'));
 
     $$('#view .report-table tr.clickable').forEach(function (tr) {
       tr.addEventListener('click', function () { openProfile(tr.getAttribute('data-key')); });
@@ -2300,7 +2204,7 @@
     var w = currentWindow();
     var stamp = iso(new Date());
 
-    if (S.view === 'ventas') {
+    if (S.view === 'dashboard') {
       var evs = revenueEvents(w);
       var lines = [['Date', 'Person', 'Email', 'Phone', 'Payment type', 'Amount',
         'Contract value', 'Customer since']];
@@ -2386,7 +2290,8 @@
     var h = (location.hash || '').replace(/^#/, '');
     if (!h) return null;
     var parts = h.split('/');
-    var view = VIEWS.indexOf(parts[0]) !== -1 ? parts[0] : null;
+    var v0 = VIEW_ALIAS[parts[0]] || parts[0];
+    var view = VIEWS.indexOf(v0) !== -1 ? v0 : null;
     return { view: view, key: parts[1] ? decodeURIComponent(parts[1]) : null };
   }
 

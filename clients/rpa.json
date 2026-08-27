@@ -793,5 +793,132 @@
     "revenueSkipClasses": [
       "entrada"
     ]
+  },
+  "metrics": [
+    {
+      "id": "cash",
+      "label": "Cash collected",
+      "simple": "Money received",
+      "mode": "money",
+      "format": "currency",
+      "help": "Every payment charged in this period, from the payment ledger and the ticket tab. Instalments count in the month they are charged."
+    },
+    {
+      "id": "net",
+      "label": "Net after ad spend",
+      "simple": "Money kept after ads",
+      "mode": "net",
+      "format": "currency",
+      "help": "Cash collected minus what was spent on ads for the webinars in this period. It does not subtract salaries or software."
+    },
+    {
+      "id": "roas",
+      "label": "ROAS",
+      "simple": "Back per $1 of ads",
+      "mode": "roas",
+      "help": "For every dollar spent on ads, how many came back. Above 1 means the advertising paid for itself."
+    },
+    {
+      "id": "progcash",
+      "label": "Program cash",
+      "simple": "From the program",
+      "mode": "money",
+      "classes": [
+        "deposito",
+        "programa",
+        "renewal"
+      ],
+      "format": "currency",
+      "help": "The part of the cash that came from REVIVE: deposits, instalments, full payments and renewals."
+    },
+    {
+      "id": "customers",
+      "label": "New customers",
+      "simple": "People who joined",
+      "mode": "customers",
+      "help": "People who became REVIVE customers in this period. An instalment or a deposit balance from someone who already joined is NOT counted again."
+    },
+    {
+      "id": "contract",
+      "label": "Total value of sales",
+      "simple": "Total value of sales",
+      "mode": "customerSum",
+      "field": "contract",
+      "format": "currency",
+      "help": "The full agreed price of what those new customers signed, even if they pay it over three months."
+    },
+    {
+      "id": "avg",
+      "label": "Average sale",
+      "simple": "Average sale",
+      "mode": "ratio",
+      "num": "contract",
+      "den": "customers",
+      "format": "currency",
+      "help": "Total value of sales divided by the number of new customers."
+    },
+    {
+      "id": "tickets",
+      "label": "Tickets sold",
+      "simple": "Webinar tickets sold",
+      "mode": "rows",
+      "stage": "ticket",
+      "help": "One per row in the ticket tab. Somebody who bought four seats over the year counts four times. Program instalments are not tickets."
+    },
+    {
+      "id": "ticketcash",
+      "label": "Ticket revenue",
+      "simple": "From webinar tickets",
+      "mode": "money",
+      "classes": [
+        "entrada"
+      ],
+      "format": "currency",
+      "help": "Money from the $29 webinar seats and the workshop tickets."
+    },
+    {
+      "id": "quiz",
+      "label": "Questionnaires filled",
+      "simple": "Filled the questionnaire",
+      "mode": "latestPerPerson",
+      "stage": "quiz",
+      "help": "People whose most recent questionnaire was submitted in this period. If somebody answered twice, only their latest answer counts."
+    },
+    {
+      "id": "hot",
+      "label": "Hot Leads",
+      "simple": "Most ready to buy",
+      "mode": "latestPerPerson",
+      "stage": "quiz",
+      "where": {
+        "field": "Tier",
+        "in": [
+          "Hot Lead"
+        ]
+      },
+      "help": "People whose most recent questionnaire says they are ready to start now."
+    }
+  ],
+  "dashboard": {
+    "money": [
+      "cash",
+      "net",
+      "roas",
+      "progcash",
+      "ticketcash"
+    ],
+    "activity": [
+      "customers",
+      "contract",
+      "avg",
+      "tickets",
+      "quiz",
+      "hot"
+    ],
+    "steps": [
+      "tickets",
+      "quiz",
+      "customers"
+    ]
   }
 }

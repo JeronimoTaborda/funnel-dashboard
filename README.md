@@ -431,3 +431,58 @@ Tomada de `reversingparentalalienation.com`.
 
 Las series siguen en el azul validado. La marca vive en el chrome: logo,
 botones, pestaña activa y títulos.
+
+---
+
+## 14. Cómo se cuenta cada número (auditoría 2026-08-27)
+
+### El error que se corrigió
+
+El modelo unifica a cada persona guardando **una sola fecha por etapa —la más
+antigua— y la suma total de su dinero**. Eso es correcto para el directorio de
+People, pero rompía todos los reportes por periodo: quien compró un ticket en
+junio y otro en agosto quedaba registrado solo en junio, con los dos pagos
+sumados ahí.
+
+En el histórico hay **39 personas con más de un ticket** (una con 4), que
+generan **46 tickets** que el Overview no veía. Agosto salía en 55 tickets y
+$1.595 en vez de 59 y $1.711.
+
+**La corrección:** los reportes cuentan **filas**, no personas. El directorio
+sigue contando personas, que es lo suyo.
+
+### Los cinco modos de conteo
+
+Todos viven en `clients/rpa.json` → `metrics`, y se calculan en un solo lugar
+(`metricValue` en `app.js`). Un número, una definición.
+
+| Modo | Qué hace | Se usa en |
+|---|---|---|
+| `rows` | Una fila = un evento | Tickets vendidos |
+| `latestPerPerson` | Solo la respuesta **más reciente** de cada persona | Quiz, Hot Leads |
+| `customers` | Personas que se volvieron clientes. **Una cuota no es una venta nueva** | Clientes nuevos |
+| `money` | Suma de pagos del periodo, filtrable por clase | Caja, programa, tickets |
+| `net` / `roas` / `ratio` / `customerSum` | Derivados | Neto, ROAS, ticket promedio |
+
+### Verificación contra la hoja (agosto 2026)
+
+| Métrica | Hoja | Dashboard |
+|---|---|---|
+| Tickets | 59 | 59 |
+| Dinero de tickets | $1.711 | $1.711 |
+| Quiz | 40 | 40 |
+| Hot Leads | 23 | 23 |
+| Clientes nuevos | 7 | 7 |
+| Valor de contratos | $24.665 | $24.665 |
+| Caja total | $39.517 | $39.517 |
+
+### Decisiones de producto
+
+- **Overview y Revenue se fusionaron** en una sola página. Se habían
+  contradicho dos veces porque cada una contaba distinto; ahora hay un solo
+  lugar donde vive cada número.
+- **Sin porcentajes de conversión entre pasos.** Los que se unieron este mes
+  compraron su ticket en meses anteriores, así que dividir una barra por otra
+  daría un número falso. Las barras se cuentan por separado y se dice.
+- **Quiz: solo la respuesta más reciente** por persona, para que el tier del
+  perfil y el del reporte nunca se contradigan.
