@@ -425,6 +425,11 @@
         "align": "right"
       },
       {
+        "key": "cashStatus",
+        "label": "Cash status",
+        "type": "cashStatus"
+      },
+      {
         "key": "firstSeen",
         "label": "First contact",
         "type": "date"
@@ -525,7 +530,12 @@
         },
         "desc": "Tickets, deposits, program and downsell, separated."
       }
-    ]
+    ],
+    "adSpendFrom": {
+      "tab": "Event Tracker",
+      "field": "Ad Spend",
+      "dateField": "Event Date"
+    }
   },
   "facets": [
     {
@@ -561,6 +571,10 @@
       {
         "label": "Outstanding",
         "type": "pending"
+      },
+      {
+        "label": "Cash status",
+        "type": "cashStatus"
       },
       {
         "label": "Customer since",
@@ -653,6 +667,15 @@
         ]
       },
       {
+        "id": "otro",
+        "label": "Other product",
+        "amounts": [
+          350,
+          2998,
+          3498
+        ]
+      },
+      {
         "id": "deposito",
         "label": "Reservation deposit",
         "amounts": [
@@ -683,6 +706,6 @@
         "CHARGEBACK"
       ]
     },
-    "dedupeSameMinute": true
+    "dedupeWindowMinutes": 15
   }
 }

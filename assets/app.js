@@ -485,11 +485,18 @@
 
         var d = rowDate(row, st);
 
-        // Filas duplicadas: mismo monto, misma persona, mismo minuto.
-        if (cfg.dedupeSameMinute && d) {
-          var k = amount + '@' + Math.floor(d.getTime() / 60000);
-          if (seen[k]) return;
-          seen[k] = 1;
+        // Filas duplicadas: mismo monto, misma persona, dentro de N minutos.
+        // El caso real que lo motivo: US$988 cobrado dos veces con 3 minutos
+        // de diferencia, mismo GHL ID y misma nota.
+        var win = cfg.dedupeWindowMinutes || (cfg.dedupeSameMinute ? 1 : 0);
+        if (win && d) {
+          var slot = Math.round(d.getTime() / 60000);
+          var dup = false;
+          for (var off = -win; off <= win && !dup; off++) {
+            if (seen[amount + '@' + (slot + off)]) dup = true;
+          }
+          if (dup) { p.dupes = (p.dupes || 0) + 1; return; }
+          seen[amount + '@' + slot] = 1;
         }
 
         var cls = classifyTx(amount);
@@ -550,6 +557,10 @@
         p.programCash = (cfg.customerClasses || []).reduce(function (a, cl) {
           return a + (p.cashByClass[cl] || 0);
         }, 0);
+        // Cerro segun la hoja pero no hay ni un cobro en el libro. Casi todos
+        // son anteriores a julio de 2026, cuando el libro no existia: su caja
+        // no esta auditada y se marca en vez de darla por buena.
+        p.unverifiedCash = !p.programCash;
         p.value = (p.values.ticket || 0) + Math.max(p.programCash, 0);
         if (when && (!p.lastSeen || when > p.lastSeen)) p.lastSeen = when;
       });
@@ -754,6 +765,22 @@
 
   function allWebinars() {
     return eventDates().map(function (d) { return iso(d); });
+  }
+
+  /** Inversion en ads de los webinars que caen en la ventana. */
+  function adSpendIn(w) {
+    var cfgS = (S.config.sales || {}).adSpendFrom;
+    if (!cfgS || !S.raw) return null;
+    var rows = (S.raw.tabs || {})[cfgS.tab] || [];
+    var total = 0, found = false;
+    rows.forEach(function (r) {
+      var d = parseDate(r[cfgS.dateField]);
+      if (!d || !inWindow(d, w)) return;
+      if (S.webinar && iso(d) !== S.webinar) return;
+      var v = num(r[cfgS.field]);
+      if (v != null) { total += v; found = true; }
+    });
+    return found ? total : null;
   }
 
   // ------------------------------------------------------------------ charts
@@ -1241,12 +1268,30 @@
         nfmt(countBy(evs, ['entrada'])) + ' tickets'
           + (down ? ' \u00b7 downsell ' + cfmt(down) : ''),
         delta(entradas, prevOf(function (e) { return sumBy(e, ['entrada']); })))
-    ].join('');
+    ];
+
+    // Rentabilidad: la caja sola no dice si el mes fue bueno.
+    var spend = adSpendIn(w);
+    var prevSpend = (S.compare && pw) ? adSpendIn(pw) : null;
+    if (spend != null && spend > 0) {
+      var net = total - spend;
+      var prevNet = (prevEvs && prevSpend) ? sumBy(prevEvs) - prevSpend : null;
+      kpis.splice(1, 0,
+        kpiCard('Net after ad spend', cfmt(net),
+          cfmt(total) + ' cash \u2212 ' + cfmt(spend) + ' ads',
+          delta(net, prevNet)),
+        kpiCard('ROAS', xfmt(total / spend),
+          'cash collected \u00f7 ad spend',
+          delta(total / spend, (prevEvs && prevSpend) ? sumBy(prevEvs) / prevSpend : null)));
+    }
+    kpis = kpis.join('');
 
     host.insertAdjacentHTML('beforeend', '<section class="kpis">' + kpis + '</section>');
 
     host.insertAdjacentHTML('beforeend',
       '<p class="card-desc" style="margin:-8px 0 18px">'
+      + (spend == null ? '<strong>Ad spend:</strong> no webinar falls inside this period, '
+        + 'so net and ROAS are not shown. Ad spend is only recorded per webinar in the Event Tracker. ' : '')
       + '<strong>Cash collected</strong> is money that actually came in \u2014 split-pay instalments land every month. '
       + '<strong>Contract value</strong> is what was signed, in full, on the day of the close. '
       + 'A 3 \u00d7 $1,665 customer counts as one customer and $4,995 of contract, '
@@ -1490,6 +1535,7 @@
     if (col.key === 'value') return p.value || 0;
     if (col.key === 'cash') return p.cash || 0;
     if (col.key === 'contract') return p.contract || 0;
+    if (col.type === 'cashStatus') return p.customerAt ? (p.unverifiedCash ? 0 : 1) : -1;
     var v = getPath(p, col.key);
     if (col.type === 'number' || col.type === 'currency') { var n = num(v); return n == null ? -1 : n; }
     return v == null ? '' : v;
@@ -1506,6 +1552,11 @@
         : '<span style="color:var(--ink-muted)">not in funnel</span>';
     } else if (c.type === 'date') {
       out = esc(dfmt(c.key === 'lastSeen' ? p.lastSeen : p.firstSeen));
+    } else if (c.type === 'cashStatus') {
+      out = !p.customerAt ? '\u2014'
+        : (p.unverifiedCash
+          ? '<span class="tag" title="Closed per the sheet, but no charge in the ledger">unverified</span>'
+          : '<span class="tag" title="At least one charge recorded in the ledger">in ledger</span>');
     } else if (c.type === 'currency') {
       var cv = c.key === 'value' ? p.value
         : (c.key === 'cash' ? p.cash : (c.key === 'contract' ? p.contract : num(getPath(p, c.key))));
@@ -1718,6 +1769,10 @@
             : (pend > 1 ? cfmt(pend) : 'Paid in full'));
       }
       else if (f.type === 'customerSource') v = p.customerSource || null;
+      else if (f.type === 'cashStatus') {
+        v = !p.customerAt ? null
+          : (p.unverifiedCash ? 'Unverified \u2014 no ledger record' : 'Recorded in ledger');
+      }
       else if (f.type === 'customerAt') v = p.customerAt ? dfmt(p.customerAt) : null;
       else if (f.type === 'age') {
         v = p.firstSeen ? nfmt(daysBetween(p.firstSeen, p.lastSeen || p.firstSeen)) + ' days' : '\u2014';
