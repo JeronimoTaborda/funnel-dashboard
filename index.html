@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Funnel Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&display=swap">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232a78d6'/><path d='M7 9h18l-7 8v7l-4 2v-9z' fill='white'/></svg>">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div class="lock" id="lock" hidden>
+  <form class="lock-card" id="lockForm">
+    <div class="lock-mark" id="lockMark">—</div>
+    <h1 id="lockTitle">Dashboard access</h1>
+    <p id="lockSub">Enter the access key to load live data.</p>
+
+    <label class="lock-label" for="lockKey">Access key</label>
+    <input class="lock-input" id="lockKey" type="password" autocomplete="current-password"
+           spellcheck="false" required aria-describedby="lockError">
+    <div class="lock-error" id="lockError" hidden role="alert">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+           stroke-width="1.6" stroke-linecap="round" style="flex:none;margin-top:1px">
+        <circle cx="8" cy="8" r="6.2"/><path d="M8 5v3.5"/><path d="M8 11h.01"/>
+      </svg>
+      <span id="lockErrorText"></span>
+    </div>
+
+    <button class="lock-submit" id="lockSubmit" type="submit">Unlock</button>
+    <p class="lock-foot">The key is stored in this browser only. It is never part of
+      the published page, so anyone who opens this URL without it sees nothing.</p>
+  </form>
+</div>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="brand-mark" id="brandMark">—</div>
+      <div class="brand-text">
+        <div class="brand-title" id="brandTitle">Loading…</div>
+        <div class="brand-sub" id="brandSub"></div>
+      </div>
+    </div>
+
+    <div class="topbar-spacer"></div>
+
+    <div class="live" id="live" data-state="loading">
+      <span class="live-dot"></span>
+      <span id="liveText">Connecting…</span>
+    </div>
+
+    <button class="btn" id="btnRefresh" title="Refresh now">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8a6 6 0 1 1-1.76-4.24"/><path d="M14 2v4h-4"/></svg>
+      <span class="btn-label">Refresh</span>
+    </button>
+
+    <button class="btn" id="btnExport" title="Download the current view as CSV">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8"/><path d="M4.5 7 8 10.5 11.5 7"/><path d="M2.5 13h11"/></svg>
+      <span class="btn-label" id="btnExportLabel">CSV</span>
+    </button>
+
+    <button class="btn" id="btnPrint" title="Print or save as PDF">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6V2.5h7V6"/><rect x="2.5" y="6" width="11" height="5" rx="1"/><path d="M4.5 11h7v3h-7z"/></svg>
+      <span class="btn-label">Report</span>
+    </button>
+
+    <button class="btn btn-icon" id="btnSignOut" title="Sign out" aria-label="Sign out">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14H3.5A1.5 1.5 0 0 1 2 12.5v-9A1.5 1.5 0 0 1 3.5 2H6"/><path d="M10.5 11 14 8l-3.5-3"/><path d="M14 8H6"/></svg>
+    </button>
+
+    <button class="btn btn-icon" id="btnTheme" title="Toggle theme" aria-label="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8 5.6 5.6 0 1 0 13.2 9.6z"/></svg>
+    </button>
+  </div>
+
+  <nav class="tabs" id="tabs" aria-label="Sections">
+    <div class="tabs-inner">
+      <button data-view="resumen"  aria-pressed="true">Overview</button>
+      <button data-view="ventas"   aria-pressed="false">Revenue</button>
+      <button data-view="personas" aria-pressed="false">People</button>
+      <button data-view="webinars" aria-pressed="false">Webinars</button>
+    </div>
+  </nav>
+</header>
+
+<main class="wrap">
+
+  <div id="banner"></div>
+
+  <section class="filters" aria-label="Filters">
+    <span class="filter-label">Period</span>
+    <div class="seg" id="rangeSeg" role="group" aria-label="Date range">
+      <button data-range="7"   aria-pressed="false">7d</button>
+      <button data-range="30"  aria-pressed="true">30d</button>
+      <button data-range="90"  aria-pressed="false">90d</button>
+      <button data-range="365" aria-pressed="false">12m</button>
+      <button data-range="all" aria-pressed="false">All time</button>
+    </div>
+
+    <div class="field field-dates">
+      <input type="date" id="dateFrom" aria-label="From">
+      <span class="dash">→</span>
+      <input type="date" id="dateTo" aria-label="To">
+    </div>
+
+    <label class="check" id="compareWrap">
+      <input type="checkbox" id="compare">
+      <span>Compare to previous period</span>
+    </label>
+
+    <div class="field" style="margin-left:auto">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+      <input id="search" type="search" placeholder="Search people…" autocomplete="off" aria-label="Search people">
+    </div>
+  </section>
+
+  <div class="period-note" id="periodNote"></div>
+
+  <div id="view"></div>
+
+  <div class="footer">
+    <span id="footerLeft"></span>
+    <span id="footerRight"></span>
+  </div>
+</main>
+
+<div class="scrim" id="scrim" data-open="0"></div>
+<aside class="drawer" id="drawer" data-open="0" role="dialog" aria-modal="true" aria-labelledby="drawerName" tabindex="-1">
+  <div class="drawer-head">
+    <div style="flex:1;min-width:0">
+      <div class="drawer-eyebrow" id="drawerStage"></div>
+      <h2 id="drawerName">—</h2>
+      <div class="meta" id="drawerMeta"></div>
+    </div>
+    <button class="btn btn-icon" id="drawerClose" aria-label="Close">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+</aside>
+
+<div class="tooltip" id="tooltip" role="status" aria-live="polite"></div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

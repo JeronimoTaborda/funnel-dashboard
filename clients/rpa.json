@@ -1,0 +1,697 @@
+{
+  "client": {
+    "id": "rpa",
+    "name": "Reversing Parental Alienation",
+    "shortName": "RPA",
+    "subtitle": "Webinar funnel — Ginger Gentile",
+    "locale": "en-US",
+    "currency": "USD"
+  },
+  "source": {
+    "type": "apps-script",
+    "url": "https://script.google.com/macros/s/AKfycbz9ckB0qtvCW2cMHMN8zFiwRL3EE71QqrL6kSO7KRDidoBkpgpkGMmw7yhUd6kBixs/exec",
+    "token": "",
+    "refreshSeconds": 60,
+    "demoFallback": "data/demo.json",
+    "requireKey": true
+  },
+  "identity": {
+    "idField": "GHL ID",
+    "mergeOnPhone": true
+  },
+  "stages": [
+    {
+      "id": "ticket",
+      "label": "Bought webinar ticket",
+      "short": "Ticket",
+      "tab": "Ticket Buyers - UTM Tracking Sheet",
+      "map": {
+        "email": "Email",
+        "name": [
+          "First Name",
+          "Last Name"
+        ],
+        "phone": "Phone",
+        "date": "Registration Date",
+        "value": "Revenue"
+      },
+      "activity": {
+        "label": "Bought the webinar ticket",
+        "metaFields": [
+          "UTM Source Latest",
+          "UTM Content Latest",
+          "Ads or Organic?"
+        ]
+      }
+    },
+    {
+      "id": "quiz",
+      "label": "Completed intent quiz",
+      "short": "Quiz",
+      "tab": "Webinar Ticket Purchase Quiz Responses",
+      "map": {
+        "email": "Email",
+        "name": [
+          "First Name",
+          "Last Name"
+        ],
+        "phone": "Phone",
+        "date": "Submission Date"
+      },
+      "activity": {
+        "label": "Completed intent quiz",
+        "metaFields": [
+          "Tier",
+          "Overall Score"
+        ]
+      }
+    },
+    {
+      "id": "hot",
+      "label": "Qualified as Hot Lead",
+      "short": "Hot Lead",
+      "tab": "Webinar Ticket Purchase Quiz Responses",
+      "when": {
+        "field": "Tier",
+        "in": [
+          "Hot Lead"
+        ]
+      },
+      "map": {
+        "email": "Email",
+        "name": [
+          "First Name",
+          "Last Name"
+        ],
+        "phone": "Phone",
+        "date": "Submission Date"
+      },
+      "funnel": false,
+      "activity": {
+        "label": "Qualified as Hot Lead",
+        "metaFields": [
+          "Overall Score"
+        ]
+      }
+    },
+    {
+      "id": "closed",
+      "label": "Program customer",
+      "short": "Customer",
+      "tab": "Ticket Buyers - UTM Tracking Sheet",
+      "when": {
+        "field": "Closed",
+        "notEmpty": true
+      },
+      "map": {
+        "email": "Email",
+        "name": [
+          "First Name",
+          "Last Name"
+        ],
+        "phone": "Phone",
+        "date": "Closed",
+        "value": "Program Revenue",
+        "dateFallback": [
+          "Webinar Cycle Closed",
+          "Registration Date"
+        ]
+      },
+      "activity": {
+        "label": "Became a program customer"
+      },
+      "derived": "customer"
+    },
+    {
+      "id": "txn",
+      "funnel": false,
+      "label": "Payment ledger",
+      "short": "Payments",
+      "tab": "Program Buyers",
+      "map": {
+        "email": "Email",
+        "name": [
+          "First Name",
+          "Last Name"
+        ],
+        "phone": "Phone",
+        "date": "Transaction Date",
+        "id": "GHL ID"
+      },
+      "activity": {
+        "label": "Payment received — ledger entry",
+        "amountField": "Amount",
+        "metaFields": [
+          "Qualifies for Rev Share?"
+        ]
+      }
+    }
+  ],
+  "kpis": [
+    {
+      "id": "tickets",
+      "label": "Tickets sold",
+      "type": "stageCount",
+      "stage": "ticket"
+    },
+    {
+      "id": "ticket_rev",
+      "label": "Ticket revenue",
+      "type": "stageValue",
+      "stage": "ticket",
+      "format": "currency"
+    },
+    {
+      "id": "quiz_rate",
+      "label": "Completed the quiz",
+      "type": "rate",
+      "from": "ticket",
+      "to": "quiz"
+    },
+    {
+      "id": "hot",
+      "label": "Hot Leads",
+      "type": "stageCount",
+      "stage": "hot"
+    },
+    {
+      "id": "closes",
+      "label": "Program customers",
+      "type": "stageCount",
+      "stage": "closed"
+    },
+    {
+      "id": "prog_rev",
+      "label": "Contract value",
+      "type": "stageValue",
+      "stage": "closed",
+      "format": "currency"
+    },
+    {
+      "id": "close_rate",
+      "label": "Ticket → customer",
+      "type": "rate",
+      "from": "ticket",
+      "to": "closed"
+    }
+  ],
+  "segments": [
+    {
+      "id": "adsorg",
+      "label": "Paid vs Organic",
+      "stage": "ticket",
+      "field": "Ads or Organic?"
+    },
+    {
+      "id": "source",
+      "label": "Source (UTM Source)",
+      "stage": "ticket",
+      "field": "UTM Source Latest"
+    },
+    {
+      "id": "creative",
+      "label": "Creative (UTM Content)",
+      "stage": "ticket",
+      "field": "UTM Content Latest"
+    },
+    {
+      "id": "campaign",
+      "label": "Campaign (UTM Campaign)",
+      "stage": "ticket",
+      "field": "UTM Campaign Latest"
+    },
+    {
+      "id": "audience",
+      "label": "Audience (UTM Medium)",
+      "stage": "ticket",
+      "field": "UTM Medium Latest"
+    },
+    {
+      "id": "tier",
+      "label": "Intent tier",
+      "stage": "quiz",
+      "field": "Tier"
+    },
+    {
+      "id": "coaching",
+      "label": "Interested in coaching?",
+      "stage": "quiz",
+      "field": "Interested In Coaching"
+    },
+    {
+      "id": "q1",
+      "label": "What they want (Q1)",
+      "stage": "quiz",
+      "field": "Question 1"
+    },
+    {
+      "id": "q3",
+      "label": "Priority (Q3)",
+      "stage": "quiz",
+      "field": "Question 3"
+    }
+  ],
+  "events": {
+    "tab": "Event Tracker",
+    "label": "Webinar performance",
+    "dateField": "Event Date",
+    "note": "Webinar attendance only exists at the event level, not per person. Until the attendee list lands in the spreadsheet, the per-person funnel jumps straight from ticket purchase to close.",
+    "kpis": [
+      {
+        "label": "Ad spend",
+        "field": "Ad Spend",
+        "agg": "sum",
+        "format": "currency"
+      },
+      {
+        "label": "Cash collected",
+        "field": "Total Cash",
+        "agg": "sum",
+        "format": "currency"
+      },
+      {
+        "label": "Blended ROAS",
+        "num": "Total Cash",
+        "den": "Ad Spend",
+        "agg": "ratio",
+        "format": "x"
+      },
+      {
+        "label": "Attendees",
+        "field": "Attendees",
+        "agg": "sum"
+      },
+      {
+        "label": "Show-up rate",
+        "num": "Attendees",
+        "den": "Total Buyers",
+        "agg": "ratio",
+        "format": "percent"
+      },
+      {
+        "label": "CAC",
+        "num": "Ad Spend",
+        "den": "Program Closes",
+        "agg": "ratio",
+        "format": "currency"
+      }
+    ],
+    "columns": [
+      {
+        "field": "Event Date",
+        "label": "Date",
+        "type": "date"
+      },
+      {
+        "field": "Ad Spend",
+        "label": "Ad spend",
+        "type": "currency"
+      },
+      {
+        "field": "Total Buyers",
+        "label": "Tickets",
+        "type": "number"
+      },
+      {
+        "field": "Attendees",
+        "label": "Attendees",
+        "type": "number"
+      },
+      {
+        "field": "Show-Up Rate (%)",
+        "label": "Show-up",
+        "type": "percent"
+      },
+      {
+        "field": "Program Closes",
+        "label": "Closes",
+        "type": "number"
+      },
+      {
+        "field": "Closing Rate (%)",
+        "label": "Close rate",
+        "type": "percent"
+      },
+      {
+        "field": "Total Cash",
+        "label": "Cash",
+        "type": "currency"
+      },
+      {
+        "field": "ROAS CC",
+        "label": "ROAS",
+        "type": "x"
+      },
+      {
+        "field": "CAC",
+        "label": "CAC",
+        "type": "currency"
+      }
+    ],
+    "charts": [
+      {
+        "label": "ROAS by webinar (cash collected)",
+        "field": "ROAS CC",
+        "format": "x"
+      },
+      {
+        "label": "Cost per customer (CAC)",
+        "field": "CAC",
+        "format": "currency"
+      },
+      {
+        "label": "Attendees per webinar",
+        "field": "Attendees",
+        "format": "number"
+      },
+      {
+        "label": "Show-up rate (%)",
+        "field": "Show-Up Rate (%)",
+        "format": "percent"
+      }
+    ]
+  },
+  "table": {
+    "columns": [
+      {
+        "key": "name",
+        "label": "Name"
+      },
+      {
+        "key": "email",
+        "label": "Email"
+      },
+      {
+        "key": "phone",
+        "label": "Phone"
+      },
+      {
+        "key": "stage",
+        "label": "Stage reached",
+        "type": "stage"
+      },
+      {
+        "key": "raw.quiz.Tier",
+        "label": "Tier"
+      },
+      {
+        "key": "raw.quiz.Overall Score",
+        "label": "Score",
+        "type": "number",
+        "align": "right"
+      },
+      {
+        "key": "raw.ticket.Ads or Organic?",
+        "label": "Source type"
+      },
+      {
+        "key": "raw.ticket.UTM Source Latest",
+        "label": "Source"
+      },
+      {
+        "key": "raw.ticket.UTM Content Latest",
+        "label": "Creative"
+      },
+      {
+        "key": "cash",
+        "label": "Collected",
+        "type": "currency",
+        "align": "right"
+      },
+      {
+        "key": "contract",
+        "label": "Contract",
+        "type": "currency",
+        "align": "right"
+      },
+      {
+        "key": "firstSeen",
+        "label": "First contact",
+        "type": "date"
+      },
+      {
+        "key": "lastSeen",
+        "label": "Last activity",
+        "type": "date"
+      }
+    ],
+    "searchFields": [
+      "name",
+      "email",
+      "phone"
+    ]
+  },
+  "detail": {
+    "multiFields": [],
+    "sections": [
+      {
+        "title": "Webinar ticket",
+        "stage": "ticket",
+        "fields": "*"
+      },
+      {
+        "title": "Intent quiz",
+        "stage": "quiz",
+        "fields": "*"
+      },
+      {
+        "title": "Payments",
+        "stage": "txn",
+        "fields": "*"
+      }
+    ]
+  },
+  "defaultRange": 90,
+  "sales": {
+    "entryStage": "ticket",
+    "closeStage": "closed",
+    "breakdowns": [
+      {
+        "id": "adsorg",
+        "label": "Revenue by Paid vs Organic",
+        "attr": {
+          "stage": "ticket",
+          "field": "Ads or Organic?"
+        }
+      },
+      {
+        "id": "source",
+        "label": "Revenue by source",
+        "attr": {
+          "stage": "ticket",
+          "field": "UTM Source Latest"
+        }
+      },
+      {
+        "id": "creative",
+        "label": "Revenue by creative",
+        "attr": {
+          "stage": "ticket",
+          "field": "UTM Content Latest"
+        },
+        "desc": "All of a person's revenue (ticket + program) is attributed to the creative that brought them in."
+      },
+      {
+        "id": "campaign",
+        "label": "Revenue by campaign",
+        "attr": {
+          "stage": "ticket",
+          "field": "UTM Campaign Latest"
+        }
+      },
+      {
+        "id": "audience",
+        "label": "Revenue by audience",
+        "attr": {
+          "stage": "ticket",
+          "field": "UTM Medium Latest"
+        }
+      },
+      {
+        "id": "cohort",
+        "label": "Program revenue by webinar",
+        "attr": {
+          "stage": "closed",
+          "field": "Webinar Cycle Closed"
+        },
+        "only": [
+          "closed"
+        ],
+        "desc": "Which webinar cycle each sale closed in."
+      },
+      {
+        "id": "clase",
+        "label": "Revenue by payment type",
+        "attr": {
+          "stage": "$class",
+          "field": ""
+        },
+        "desc": "Tickets, deposits, program and downsell, separated."
+      }
+    ]
+  },
+  "facets": [
+    {
+      "id": "tier",
+      "label": "Tier",
+      "stage": "quiz",
+      "field": "Tier"
+    },
+    {
+      "id": "adsorg",
+      "label": "Source type",
+      "stage": "ticket",
+      "field": "Ads or Organic?"
+    },
+    {
+      "id": "source",
+      "label": "Source",
+      "stage": "ticket",
+      "field": "UTM Source Latest"
+    },
+    {
+      "id": "cohort",
+      "label": "Webinar",
+      "stage": "closed",
+      "field": "Webinar Cycle Closed"
+    }
+  ],
+  "profile": {
+    "facts": [
+      {
+        "label": "Cash collected",
+        "type": "cash",
+        "big": true
+      },
+      {
+        "label": "Contract value",
+        "type": "contract"
+      },
+      {
+        "label": "Outstanding",
+        "type": "pending"
+      },
+      {
+        "label": "Customer since",
+        "type": "customerAt"
+      },
+      {
+        "label": "Data source",
+        "type": "customerSource"
+      },
+      {
+        "label": "Tier",
+        "path": "raw.quiz.Tier"
+      },
+      {
+        "label": "Quiz score",
+        "path": "raw.quiz.Overall Score"
+      },
+      {
+        "label": "Source type",
+        "path": "raw.ticket.Ads or Organic?"
+      },
+      {
+        "label": "Source",
+        "path": "raw.ticket.UTM Source Latest"
+      },
+      {
+        "label": "Creative",
+        "path": "raw.ticket.UTM Content Latest"
+      },
+      {
+        "label": "Campaign",
+        "path": "raw.ticket.UTM Campaign Latest"
+      },
+      {
+        "label": "Audience",
+        "path": "raw.ticket.UTM Medium Latest"
+      },
+      {
+        "label": "Closing webinar",
+        "path": "raw.ticket.Webinar Cycle Closed"
+      },
+      {
+        "label": "First contact",
+        "type": "firstSeen"
+      },
+      {
+        "label": "Last activity",
+        "type": "lastSeen"
+      },
+      {
+        "label": "CRM ID",
+        "path": "raw.txn.GHL ID"
+      }
+    ],
+    "notes": [
+      {
+        "label": "Enrolment notes",
+        "path": "raw.ticket.Notes on enrolment"
+      },
+      {
+        "label": "Webinar notes",
+        "path": "raw.ticket.Webinar Notes"
+      },
+      {
+        "label": "Lead status",
+        "path": "raw.ticket.Lead Status"
+      }
+    ]
+  },
+  "transactions": {
+    "stage": "txn",
+    "amountField": "Amount",
+    "dateField": "Transaction Date",
+    "classes": [
+      {
+        "id": "entrada",
+        "label": "Ticket (webinar / workshop)",
+        "amounts": [
+          29,
+          44,
+          88
+        ]
+      },
+      {
+        "id": "roadmap",
+        "label": "REVIVE Roadmap (downsell)",
+        "amounts": [
+          497,
+          498
+        ]
+      },
+      {
+        "id": "deposito",
+        "label": "Reservation deposit",
+        "amounts": [
+          500
+        ]
+      },
+      {
+        "id": "programa",
+        "label": "REVIVE program",
+        "default": true
+      }
+    ],
+    "customerClasses": [
+      "deposito",
+      "programa"
+    ],
+    "exclude": {
+      "emails": [
+        "jeronimo@systemsandclients.com",
+        "juan@systemsandclients.com",
+        "support@reversingparentalalineation.com"
+      ],
+      "maxTestAmount": 5,
+      "refundMarkers": [
+        "REFUNDED",
+        "REFUND",
+        "REEMBOLSO",
+        "CHARGEBACK"
+      ]
+    },
+    "dedupeSameMinute": true
+  }
+}
