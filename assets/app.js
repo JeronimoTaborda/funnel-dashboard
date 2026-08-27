@@ -519,8 +519,19 @@
       });
 
       // Valor de contrato: lo que se firmo, no lo que ya entro en caja.
-      var tRow = p.raw[(S.config.contractStage || 'ticket')];
-      var rawContract = tRow ? (num(tRow[S.config.contractField || 'Program Revenue']) || 0) : 0;
+      // Una persona puede tener VARIAS filas de ticket (compro en abril y otra
+      // vez en junio). El Program Revenue suele estar en la ultima, no en la
+      // primera, asi que se recorren todas en vez de mirar solo p.raw.
+      var field = S.config.contractField || 'Program Revenue';
+      var rawContract = 0;
+      [cfg.contractStage || 'closed', S.config.contractStage || 'ticket'].forEach(function (sid) {
+        if (rawContract) return;
+        (p.rows[sid] || []).forEach(function (row) {
+          if (rawContract) return;
+          var v = num(row[field]);
+          if (v) rawContract = v;
+        });
+      });
       // Un "contrato" de $497 es el downsell, no el programa: no infla el valor.
       p.contract = ((cfg.customerClasses || []).indexOf(classifyTx(rawContract)) !== -1)
         ? rawContract : 0;
@@ -566,6 +577,7 @@
         if (!fromColumn) {
           delete p.stages[sd.id];
           delete p.dates[sd.id];
+          delete p.values[sd.id];
           p.customerAt = null;
           if (ledgerAt) {
             p.pendingClose = true;
@@ -580,6 +592,7 @@
         p.customerAt = when;
         p.dates[sd.id] = when;
         if (!p.raw[sd.id] && p.raw.ticket) p.raw[sd.id] = p.raw.ticket;
+        p.values[sd.id] = p.contract;   // ya viene filtrado por clase de pago
 
         p.customerSource = ledgerAt ? 'Sheet + ledger' : 'Sheet only';
 
@@ -653,10 +666,26 @@
     return d > 0 ? funnelStages()[d - 1] : null;
   }
 
-  function stageCounts(pool) {
+  /** Dos formas de contar una etapa, y hay que ser explicito sobre cual:
+   *
+   *  'activity' — cuantas personas ENTRARON a esa etapa dentro del periodo.
+   *      Responde "cuantos clientes nuevos hubo en agosto" = 7.
+   *
+   *  'cohort'   — de las personas que aparecieron por primera vez en el
+   *      periodo, cuantas llegaron hasta esa etapa. Responde "de los leads
+   *      de agosto, cuantos ya compraron" = 1, porque los otros 6 clientes
+   *      de agosto habian comprado su ticket en junio o julio.
+   *
+   *  Mezclarlas hacia que la misma frase diera dos numeros distintos.
+   */
+  function stageCounts(pool, basis, w) {
     var out = {};
     (S.config.stages || []).forEach(function (st) {
-      var reached = pool.filter(function (p) { return !!p.stages[st.id]; });
+      var reached = pool.filter(function (p) {
+        if (!p.stages[st.id]) return false;
+        if (basis !== 'activity' || !w || (!w.from && !w.to)) return true;
+        return inWindow(p.dates[st.id], w);
+      });
       out[st.id] = {
         id: st.id, label: st.label, short: st.short || st.label,
         count: reached.length,
@@ -667,7 +696,7 @@
   }
 
   function funnelData(pool) {
-    var counts = stageCounts(pool);
+    var counts = stageCounts(pool, 'cohort');
     return funnelStages().map(function (st, i) {
       return Object.assign({ index: i }, counts[st.id]);
     });
@@ -1150,11 +1179,15 @@
   // --- Vista: Resumen -------------------------------------------------------
 
   function renderResumen(host, w) {
-    var pool = poolFor(w);
-    var counts = stageCounts(pool);
-    var fd = funnelData(pool);
+    // Los KPI cuentan lo que PASO en el periodo (coincide con la vista Revenue).
+    var everyone = poolFor({ from: null, to: null });
+    var counts = stageCounts(everyone, 'activity', w);
     var pw = prevWindow();
-    var prevCounts = (S.compare && pw) ? stageCounts(poolFor(pw)) : null;
+    var prevCounts = (S.compare && pw) ? stageCounts(everyone, 'activity', pw) : null;
+
+    // El embudo es una cohorte: solo la gente que entro en el periodo.
+    var pool = poolFor(w);
+    var fd = funnelData(pool);
 
     // --- KPIs
     var kpis = visible(S.config.kpis || []).map(function (k) {
@@ -1163,7 +1196,7 @@
       if (k.type === 'stageCount') {
         var f = counts[k.stage];
         value = nfmt(f ? f.count : 0);
-        var base = fd[0];
+        var base = counts[funnelStages()[0].id];
         if (f && base && base.id !== f.id && base.count) {
           sub = pfmt(pct(f.count, base.count), 1)
             + (simpleMode() ? ' of ticket buyers' : ' of \u201c' + base.short + '\u201d');
@@ -1177,14 +1210,17 @@
         dl = prevCounts ? delta(total, prevCounts[k.stage] ? prevCounts[k.stage].value : 0) : null;
 
       } else if (k.type === 'rate') {
-        var a = counts[k.from], b = counts[k.to];
+        var cohort = stageCounts(pool, 'cohort');
+        var a = cohort[k.from], b = cohort[k.to];
         var r = a && b ? pct(b.count, a.count) : 0;
         value = '<span>' + (Math.round(r * 10) / 10) + '</span><span class="unit">%</span>';
         sub = (b ? nfmt(b.count) : 0) + ' of ' + (a ? nfmt(a.count) : 0);
-        if (prevCounts) {
-          var pa = prevCounts[k.from], pb = prevCounts[k.to];
+        if (S.compare && pw) {
+          var pc = stageCounts(poolFor(pw), 'cohort');
+          var pa = pc[k.from], pb = pc[k.to];
           dl = delta(r, pa && pb ? pct(pb.count, pa.count) : 0);
         }
+        sub += ' \u00b7 of this period\u2019s new people';
       }
       return kpiCard(lbl(k), value, sub, dl, k.help);
     }).join('');
@@ -1192,12 +1228,11 @@
     // Una frase antes de los numeros: el cliente entiende el mes de un vistazo.
     var fs = funnelStages();
     var entry = counts[fs[0].id], last = counts[fs[fs.length - 1].id];
-    if (simpleMode() && entry && entry.count) {
+    if (simpleMode() && entry) {
       host.insertAdjacentHTML('beforeend', headline(
         count(entry.count) + ' people bought a webinar ticket in this period, and '
-        + count(last.count) + ' of them joined the program'
-        + (last.count ? ' \u2014 that is ' + '<strong>' + (Math.round(pct(last.count, entry.count) * 10) / 10)
-          + ' out of every 100</strong>' : '') + '.'));
+        + count(last.count) + ' ' + (last.count === 1 ? 'person' : 'people')
+        + ' joined the program.'));
     }
     host.insertAdjacentHTML('beforeend', '<section class="kpis">' + kpis + '</section>');
 
@@ -1235,12 +1270,12 @@
       }).join('') + '</tbody></table></details>';
 
     host.insertAdjacentHTML('beforeend', card(
-      simpleMode() ? 'Where people drop off' : 'Conversion funnel',
-      nfmt(pool.length) + ' people in period',
+      simpleMode() ? 'How this period\u2019s new people are progressing' : 'Conversion funnel (cohort)',
+      nfmt(pool.length) + ' people first seen in this period',
       '<div class="funnel">' + rows + '</div>' + fTable,
-      simpleMode()
-        ? 'Each bar is one step. Fewer people reach each step than the one before. Click a step to see exactly who they are.'
-        : 'Each bar is a stage. The percentage on the right is the conversion from the previous stage. Click a stage to see those people.'));
+      'This follows ONLY the people who first appeared in this period, and shows how far they have got so far. '
+      + 'It is a different question from the numbers above: someone who joined the program this month but bought '
+      + 'their ticket in June counts in the cards above, not here. Click a step to see exactly who they are.'));
 
     $$('#view .funnel-row').forEach(function (row) {
       var go = function () {

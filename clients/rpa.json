@@ -180,7 +180,8 @@
       "from": "ticket",
       "to": "quiz",
       "simple": "Filled the questionnaire",
-      "help": "Of everyone who bought a ticket, how many answered the questions."
+      "help": "Out of the people who FIRST appeared in this period, how many have reached this step so far. Recent periods look low because those people have not had time yet.",
+      "detailOnly": true
     },
     {
       "id": "hot",
@@ -214,7 +215,8 @@
       "from": "ticket",
       "to": "closed",
       "simple": "Ticket buyers who joined",
-      "help": "Out of every 100 ticket buyers, how many ended up joining."
+      "help": "Out of the people who FIRST appeared in this period, how many have reached this step so far. Recent periods look low because those people have not had time yet.",
+      "detailOnly": true
     }
   ],
   "segments": [
@@ -787,6 +789,9 @@
       "deposito",
       "programa",
       "renewal"
+    ],
+    "revenueSkipClasses": [
+      "entrada"
     ]
   }
 }
