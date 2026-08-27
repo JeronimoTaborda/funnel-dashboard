@@ -38,7 +38,20 @@
 
   /* Fira Sans: recomendada para dashboards y datos. El fallback del sistema
      entra sin salto de layout gracias a font-display: swap. */
-  --font: "Fira Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Tipografia de la marca, tomada de reversingparentalalienation.com */
+  --font: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+
+  /* Colores de la marca.
+     Coral y carbon salen del logo; el dorado es el CTA del sitio.
+     MEDIDO: negro sobre dorado 10.9:1 y sobre coral 6.4:1 -> texto oscuro.
+     Blanco sobre dorado da 1.8:1 -> nunca texto claro encima.
+     Ninguno sirve como color de DATOS: el dorado queda en 1.76:1 sobre el
+     fondo claro, y el coral esta a delta-E 11.1 del rojo de "high drop-off"
+     (minimo 15), o sea que se confundirian. Los graficos siguen en azul. */
+  --brand:      #f5b638;
+  --brand-ink:  #0b0b0b;
+  --brand-alt:  #ee6a5f;
 
   /* Escala modular: sin tamanos arbitrarios */
   --fs-xs:  12px;
@@ -141,14 +154,22 @@ button, input, select { font: inherit; color: inherit; }
   gap: 16px;
   flex-wrap: wrap;
 }
-.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.brand-mark {
-  width: 38px; height: 38px; flex: none;
-  border-radius: 9px;
-  background: var(--s1);
-  color: #fff;
-  display: grid; place-items: center;
-  font-weight: 700; font-size: 14px; letter-spacing: .02em;
+.brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.brand-logo {
+  /* El logo ya contiene el nombre, asi que se muestra a un tamano en el que
+     ese texto se lee, y no se repite al lado. */
+  height: 44px; width: auto; flex: none;
+  display: block;
+}
+@media (max-width: 720px) { .brand-logo { height: 34px; } }
+/* El logo lleva texto en carbon: sobre fondo oscuro necesita su propia base
+   clara para seguir siendo legible, en vez de invertirle los colores. */
+:root[data-theme="dark"] .brand-logo,
+:root:not([data-theme="light"]) .brand-logo {
+  background: #fff; border-radius: 7px; padding: 4px 7px; box-sizing: content-box;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .brand-logo { background: none; padding: 0; }
 }
 .brand-text { min-width: 0; }
 .brand-title {
@@ -156,7 +177,8 @@ button, input, select { font: inherit; color: inherit; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .brand-sub {
-  font-size: var(--fs-xs); color: var(--ink-muted); line-height: 1.3;
+  font-size: var(--fs-sm); color: var(--ink-muted); line-height: 1.35;
+  padding-left: 11px; border-left: 1px solid var(--hairline);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -177,7 +199,7 @@ button, input, select { font: inherit; color: inherit; }
   transition: color .12s ease, border-color .12s ease;
 }
 .tabs button:hover { color: var(--ink-2); }
-.tabs button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--s1); }
+.tabs button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--brand); }
 .tabs button:focus-visible { outline: 2px solid var(--s1); outline-offset: -2px; }
 
 .live {
@@ -257,7 +279,7 @@ button, input, select { font: inherit; color: inherit; }
   transition: background .12s ease, color .12s ease;
 }
 .seg button:hover { color: var(--ink); }
-.seg button[aria-pressed="true"] { background: var(--s1); color: #fff; }
+.seg button[aria-pressed="true"] { background: var(--brand); color: var(--brand-ink); }
 .seg button:focus-visible { outline: 2px solid var(--s1); outline-offset: 1px; }
 
 .field {
@@ -367,7 +389,7 @@ button, input, select { font: inherit; color: inherit; }
   gap: 14px; flex-wrap: wrap;
   margin-bottom: 4px;
 }
-.card-title { font-size: var(--fs-lg); font-weight: 640; letter-spacing: -.01em; }
+.card-title { font-family: var(--font-display); font-size: var(--fs-lg); font-weight: 640; letter-spacing: -.01em; }
 .card-note { font-size: var(--fs-sm); color: var(--ink-muted); }
 .card-desc { font-size: var(--fs-sm); color: var(--ink-muted); margin: 2px 0 16px; }
 
@@ -538,7 +560,7 @@ table.people tbody tr:focus-visible { outline: 2px solid var(--s1); outline-offs
   border-bottom: 1px solid var(--hairline);
   display: flex; align-items: flex-start; gap: 12px;
 }
-.drawer-head h2 { margin: 0 0 3px; font-size: 18px; font-weight: 650; letter-spacing: -.015em; }
+.drawer-head h2 { font-family: var(--font-display); margin: 0 0 3px; font-size: 20px; font-weight: 650; letter-spacing: -.015em; }
 .drawer-head .meta { font-size: 13px; color: var(--ink-muted); }
 .drawer-head .meta a { color: var(--s1); text-decoration: none; }
 .drawer-head .meta a:hover { text-decoration: underline; }
@@ -797,15 +819,17 @@ details.table-toggle > summary:hover { color: var(--ink-2); }
   box-shadow: var(--shadow);
   padding: 28px 28px 24px;
 }
-.lock-mark {
-  width: 42px; height: 42px; border-radius: 10px;
-  background: var(--s1); color: #fff;
-  display: grid; place-items: center;
-  font-weight: 700; font-size: var(--fs-md); letter-spacing: .02em;
-  margin-bottom: 18px;
+.lock-logo { height: 40px; width: auto; display: block; margin-bottom: 20px; }
+:root[data-theme="dark"] .lock-logo,
+:root:not([data-theme="light"]) .lock-logo {
+  background: #fff; border-radius: 8px; padding: 6px 9px; box-sizing: content-box;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .lock-logo { background: none; padding: 0; }
 }
 .lock-card h1 {
-  margin: 0 0 6px; font-size: var(--fs-xl);
+  font-family: var(--font-display);
+  margin: 0 0 6px; font-size: var(--fs-2xl);
   font-weight: 650; letter-spacing: -.015em;
 }
 .lock-card p {
@@ -833,8 +857,8 @@ details.table-toggle > summary:hover { color: var(--ink-2); }
 .lock-submit {
   width: 100%; height: 42px; margin-top: 16px;
   border: 0; border-radius: 9px;
-  background: var(--s1); color: #fff;
-  font-size: var(--fs-md); font-weight: 600; cursor: pointer;
+  background: var(--brand); color: var(--brand-ink);
+  font-size: var(--fs-md); font-weight: 700; cursor: pointer;
   transition: filter .12s ease;
 }
 .lock-submit:hover { filter: brightness(1.08); }
@@ -848,8 +872,9 @@ details.table-toggle > summary:hover { color: var(--ink-2); }
 /* ---------- Modo simple: frase de portada y ayudas ----------------------- */
 
 .headline {
+  font-family: var(--font-display);
   margin: 0 0 20px;
-  font-size: var(--fs-xl);
+  font-size: var(--fs-2xl);
   line-height: 1.5;
   color: var(--ink-2);
   letter-spacing: -.005em;

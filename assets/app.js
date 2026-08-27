@@ -520,7 +520,10 @@
 
       // Valor de contrato: lo que se firmo, no lo que ya entro en caja.
       var tRow = p.raw[(S.config.contractStage || 'ticket')];
-      p.contract = tRow ? (num(tRow[S.config.contractField || 'Program Revenue']) || 0) : 0;
+      var rawContract = tRow ? (num(tRow[S.config.contractField || 'Program Revenue']) || 0) : 0;
+      // Un "contrato" de $497 es el downsell, no el programa: no infla el valor.
+      p.contract = ((cfg.customerClasses || []).indexOf(classifyTx(rawContract)) !== -1)
+        ? rawContract : 0;
       p.programCash = 0;
     });
 
@@ -536,26 +539,51 @@
       if (sd.derived !== 'customer') return;
 
       people.forEach(function (p) {
-        var fromColumn = p.dates[sd.id] || null;   // viene de la columna Closed
-        var fromLedger = p.customerAt || null;     // primer pago de programa
+        // La columna "Closed" de Ticket Buyers es la fuente autoritativa: es
+        // lo que el equipo marca a mano cuando alguien cierra de verdad.
+        //
+        // El libro NO puede usarse para fechar la adquisicion: empieza el
+        // 2026-07-07, asi que la cuota de agosto de alguien que cerro en mayo
+        // parecia su "primer pago" e inflaba los clientes nuevos del mes.
+        //
+        // Y "Closed" por si sola tampoco basta: marca cerrado a quien solo
+        // compro el Roadmap de $497. Tiene que ser un monto del programa.
+        var fromColumn = null;
+        if (p.dates[sd.id]) {
+          var contractCls = classifyTx(num((p.raw[sd.id] || {})['Program Revenue']) || 0);
+          if ((cfg.customerClasses || []).indexOf(contractCls) !== -1) fromColumn = p.dates[sd.id];
+        }
 
-        var when = null;
-        if (fromColumn && fromLedger) when = fromColumn < fromLedger ? fromColumn : fromLedger;
-        else when = fromColumn || fromLedger;
+        // Pago real del programa sin cierre marcado: no se cuenta como cliente,
+        // pero tampoco se descarta en silencio. Se reporta aparte.
+        var ledgerAt = null;
+        (p.tx || []).forEach(function (x) {
+          if (!x.date) return;
+          if ((cfg.customerClasses || []).indexOf(x.cls) === -1) return;
+          if (!ledgerAt || x.date < ledgerAt) ledgerAt = x.date;
+        });
 
-        var isCustomer = !!(when || p.stages[sd.id]);
-        if (!isCustomer) return;
+        if (!fromColumn) {
+          delete p.stages[sd.id];
+          delete p.dates[sd.id];
+          p.customerAt = null;
+          if (ledgerAt) {
+            p.pendingClose = true;
+            p.pendingCloseAt = ledgerAt;
+            p.pendingCloseAmount = p.programCash;
+          }
+          return;
+        }
 
+        var when = fromColumn;
         p.stages[sd.id] = true;
         p.customerAt = when;
-        if (when) p.dates[sd.id] = when;
+        p.dates[sd.id] = when;
         if (!p.raw[sd.id] && p.raw.ticket) p.raw[sd.id] = p.raw.ticket;
 
-        // De donde salio el dato, para poder auditarlo en el perfil.
-        p.customerSource = (fromColumn && fromLedger) ? 'ambas'
-          : (fromLedger ? 'pago registrado' : 'columna Closed');
+        p.customerSource = ledgerAt ? 'Sheet + ledger' : 'Sheet only';
 
-        p.programCash = (cfg.customerClasses || []).reduce(function (a, cl) {
+        p.programCash = (cfg.programClasses || cfg.customerClasses || []).reduce(function (a, cl) {
           return a + (p.cashByClass[cl] || 0);
         }, 0);
         // Cerro segun la hoja pero no hay ni un cobro en el libro. Casi todos
@@ -1301,7 +1329,7 @@
     var pw = prevWindow();
     var prevEvs = (S.compare && pw) ? revenueEvents(pw) : null;
 
-    var progClasses = cfg.customerClasses || ['programa', 'deposito'];
+    var progClasses = cfg.programClasses || cfg.customerClasses || ['programa', 'deposito'];
     var clients = newCustomers(w);
     var prevClients = (S.compare && pw) ? newCustomers(pw) : null;
 
@@ -1361,7 +1389,7 @@
           delta(net, prevNet),
           'What is left after paying for advertising. It does not subtract salaries, software or other costs.'),
         kpiCard(simple ? 'Back per $1 of ads' : 'ROAS',
-          simple ? cfmt(total / spend).replace(/[^0-9.,$]/g, '') : xfmt(total / spend),
+          simple ? '$' + (Math.round((total / spend) * 100) / 100).toFixed(2) : xfmt(total / spend),
           simple ? 'for every $1 spent on ads' : 'cash collected \u00f7 ad spend',
           delta(total / spend, (prevEvs && prevSpend) ? sumBy(prevEvs) / prevSpend : null),
           'For every dollar spent on ads, this is how many dollars came back. Above 1 means the advertising paid for itself.'));
@@ -1482,6 +1510,36 @@
         + '<th class="num">Collected</th><th>Webinar</th></tr></thead><tbody>' + cbody
         + '</tbody></table></div>',
         'The date is their first program payment or deposit. If Collected is lower than Contract, they still owe instalments.'));
+    }
+
+    // --- Pagos del programa sin cierre marcado en la hoja
+    var pend = S.people.filter(function (x) {
+      if (!x.pendingClose || !x.pendingCloseAt) return false;
+      if (!inWindow(x.pendingCloseAt, w)) return false;
+      return !S.webinar || webinarOfPerson(x) === S.webinar;
+    });
+    if (pend.length) {
+      var pendTotal = pend.reduce(function (a, x) { return a + (x.pendingCloseAmount || 0); }, 0);
+      host.insertAdjacentHTML('beforeend', card(
+        'Program payments with no close recorded',
+        nfmt(pend.length) + ' \u00b7 ' + cfmt(pendTotal),
+        '<div class="table-scroll"><table class="report-table"><thead><tr>'
+        + '<th>Date</th><th>Person</th><th>Email</th><th class="num">Paid</th></tr></thead><tbody>'
+        + pend.sort(function (a, b) { return b.pendingCloseAt - a.pendingCloseAt; })
+          .map(function (x) {
+            return '<tr class="clickable" data-key="' + esc(x.key) + '">'
+              + '<td>' + esc(dfmt(x.pendingCloseAt)) + '</td>'
+              + '<td class="strong">' + esc(x.name) + '</td>'
+              + '<td>' + esc(x.email || '\u2014') + '</td>'
+              + '<td class="num strong">' + esc(cfmt(x.pendingCloseAmount || 0)) + '</td></tr>';
+          }).join('')
+        + '</tbody></table></div>',
+        'These people paid for REVIVE but the Closed column in the spreadsheet is still empty, '
+        + 'so they are NOT counted as customers above. Mark them as closed in the sheet and they '
+        + 'will appear automatically.'));
+      $$('#view .report-table tr.clickable').forEach(function (tr) {
+        tr.addEventListener('click', function () { openProfile(tr.getAttribute('data-key')); });
+      });
     }
 
     // --- Ledger
@@ -1978,7 +2036,8 @@
 
   function showLock(message) {
     var name = (S.config && S.config.client.name) || 'Dashboard';
-    $('#lockMark').textContent = ((S.config && S.config.client.shortName) || name).slice(0, 3).toUpperCase();
+    var ll = $('#lockLogo');
+    if (ll) ll.alt = name;
     $('#lockSub').textContent = 'Enter the access key to load live data for ' + name + '.';
     $('#lock').hidden = false;
     if (message) {
@@ -2315,7 +2374,8 @@
       document.title = cfg.client.name + ' \u2014 Dashboard';
       $('#brandTitle').textContent = cfg.client.name;
       $('#brandSub').textContent = cfg.client.subtitle || '';
-      $('#brandMark').textContent = (cfg.client.shortName || cfg.client.name).slice(0, 3).toUpperCase();
+      var bl = $('#brandLogo');
+      if (bl) bl.alt = cfg.client.name;
       if (cfg.defaultRange) S.range = cfg.defaultRange;
 
       wireUI();

@@ -7,7 +7,7 @@
 <title>Funnel Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232a78d6'/><path d='M7 9h18l-7 8v7l-4 2v-9z' fill='white'/></svg>">
 <link rel="stylesheet" href="assets/styles.css">
 </head>
@@ -15,7 +15,7 @@
 
 <div class="lock" id="lock" hidden>
   <form class="lock-card" id="lockForm">
-    <div class="lock-mark" id="lockMark">—</div>
+    <img class="lock-logo" id="lockLogo" src="assets/logo.webp" alt="Reversing Parental Alienation">
     <h1 id="lockTitle">Dashboard access</h1>
     <p id="lockSub">Enter the access key to load live data.</p>
 
@@ -39,9 +39,9 @@
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand">
-      <div class="brand-mark" id="brandMark">—</div>
+      <img class="brand-logo" id="brandLogo" src="assets/logo.webp" alt="Reversing Parental Alienation">
       <div class="brand-text">
-        <div class="brand-title" id="brandTitle">Loading…</div>
+        <div class="brand-title" id="brandTitle" hidden>Loading…</div>
         <div class="brand-sub" id="brandSub"></div>
       </div>
     </div>

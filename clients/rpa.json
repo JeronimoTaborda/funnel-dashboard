@@ -713,11 +713,18 @@
     "classes": [
       {
         "id": "entrada",
-        "label": "Ticket (webinar / workshop)",
+        "label": "Webinar ticket",
         "amounts": [
           29,
           44,
           88
+        ]
+      },
+      {
+        "id": "fee",
+        "label": "Re-schedule fee",
+        "amounts": [
+          100
         ]
       },
       {
@@ -737,8 +744,16 @@
         ]
       },
       {
+        "id": "renewal",
+        "label": "REVIVE renewal",
+        "amounts": [
+          2998,
+          2798
+        ]
+      },
+      {
         "id": "deposito",
-        "label": "Reservation deposit",
+        "label": "REVIVE deposit",
         "amounts": [
           500
         ]
@@ -767,6 +782,11 @@
         "CHARGEBACK"
       ]
     },
-    "dedupeWindowMinutes": 15
+    "dedupeWindowMinutes": 15,
+    "programClasses": [
+      "deposito",
+      "programa",
+      "renewal"
+    ]
   }
 }

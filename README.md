@@ -373,3 +373,61 @@ Decisiones de diseño, aplicadas con el skill `ui-ux-pro-max`:
 `RPA - Alienation…` y `Rpa - alienation…`. Se agrupan y se muestra la grafía
 más frecuente; sin eso una misma categoría se partía en dos y ambas quedaban
 subestimadas.
+
+---
+
+## 12. Reglas de negocio — diccionario de precios
+
+Confirmado con el cliente el 2026-08-27. Vive en `clients/rpa.json` →
+`transactions.classes`.
+
+| Monto | Qué es | ¿Cliente nuevo? | ¿Caja del programa? |
+|---|---|---|---|
+| $29 / $44 / $88 | Ticket de webinar o workshop | no | no |
+| $100 | Fee por reagendar | no | no |
+| $497 / $498 | REVIVE Roadmap (downsell) | **no** | no |
+| $350 / $3.498 | Otro producto | no | no |
+| $500 | Depósito de REVIVE | **sí** | sí |
+| $1.665 | Cuota del split (3 pagos) | sí (la primera) | sí |
+| $2.500 | Beca parcial | sí | sí |
+| $2.798 / $2.998 | Renovación de REVIVE Personal Coaching | **no** (ya era cliente) | sí |
+| $4.500 | Pay in full con cupón REVIVE | sí | sí |
+| $4.998 | Pay in full sin cupón | sí | sí |
+
+### Quién cuenta como cliente
+
+La columna **`Closed`** de `Ticket Buyers` manda. Dos razones medidas:
+
+1. **El libro no puede fechar la adquisición.** `Program Buyers` empieza el
+   2026-07-07, así que la cuota de agosto de alguien que cerró en mayo parecía
+   su "primer pago" e inflaba los clientes del mes.
+2. **`Closed` por sí sola tampoco basta.** Marca cerrado a quien solo compró el
+   Roadmap de $497. Por eso además se exige que `Program Revenue` sea un monto
+   del programa.
+
+Los pagos de REVIVE **sin** `Closed` marcado no se cuentan como clientes, pero
+tampoco se pierden: salen en la tarjeta *"Program payments with no close
+recorded"* de la vista Revenue, para que el equipo los marque en la hoja.
+
+---
+
+## 13. Marca
+
+Tomada de `reversingparentalalienation.com`.
+
+| Elemento | Valor |
+|---|---|
+| Logo | `assets/logo.webp` (con transparencia; en modo oscuro va sobre base blanca porque su texto es carbón) |
+| Dorado (acción principal) | `#f5b638` — siempre con texto oscuro |
+| Coral (del logo) | `#ee6a5f` |
+| Títulos | Playfair Display |
+| Interfaz y cifras | Manrope |
+
+**Los gráficos NO usan los colores de marca**, y es a propósito:
+
+- el dorado da **1.76:1** de contraste sobre el fondo claro (mínimo 3:1)
+- el coral está a **ΔE 11.1** del rojo de "high drop-off" (mínimo 15), o sea que
+  se confundirían justo donde el color significa algo
+
+Las series siguen en el azul validado. La marca vive en el chrome: logo,
+botones, pestaña activa y títulos.
