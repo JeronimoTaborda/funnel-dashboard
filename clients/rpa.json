@@ -288,57 +288,128 @@
     "tab": "Event Tracker",
     "label": "Webinar performance",
     "dateField": "Event Date",
-    "note": "Webinar attendance only exists at the event level, not per person. Until the attendee list lands in the spreadsheet, the per-person funnel jumps straight from ticket purchase to close.",
+    "note": "Every figure here comes from the Event Tracker, which your team maintains and which is internally consistent (Total Cash = HT Cash Collected + Ticket Sales checks out on every row). Where the payment ledger disagrees by more than 10%, you get a warning instead of a silently different number.",
     "kpis": [
       {
-        "label": "Ad spend",
-        "field": "Ad Spend",
-        "agg": "sum",
-        "format": "currency"
+        "label": "Page views",
+        "simple": "Saw the page",
+        "field": "Total Unique LP Views",
+        "agg": "sum"
       },
       {
-        "label": "Cash collected",
-        "field": "Total Cash",
-        "agg": "sum",
-        "format": "currency"
-      },
-      {
-        "label": "Blended ROAS",
-        "num": "Total Cash",
-        "den": "Ad Spend",
-        "agg": "ratio",
-        "format": "x"
+        "label": "Tickets",
+        "simple": "Tickets sold",
+        "field": "Total Buyers",
+        "agg": "sum"
       },
       {
         "label": "Attendees",
+        "simple": "Showed up",
         "field": "Attendees",
         "agg": "sum"
       },
       {
         "label": "Show-up rate",
+        "simple": "Show-up rate",
         "num": "Attendees",
         "den": "Total Buyers",
         "agg": "ratio",
         "format": "percent"
       },
       {
-        "label": "CAC",
-        "num": "Ad Spend",
-        "den": "Program Closes",
-        "agg": "ratio",
+        "label": "Joined",
+        "simple": "Joined the program",
+        "field": "Program Closes",
+        "agg": "sum"
+      },
+      {
+        "label": "Total cash",
+        "simple": "Money received",
+        "field": "Total Cash",
+        "agg": "sum",
         "format": "currency"
+      },
+      {
+        "label": "Ad spend",
+        "simple": "Spent on ads",
+        "field": "Ad Spend",
+        "agg": "sum",
+        "format": "currency"
+      },
+      {
+        "label": "ROAS",
+        "simple": "Back per $1 of ads",
+        "num": "Total Cash",
+        "den": "Ad Spend",
+        "agg": "ratio",
+        "format": "x"
       }
     ],
-    "columns": [
+    "charts": [
       {
-        "field": "Event Date",
-        "label": "Date",
+        "label": "Money received per webinar",
+        "field": "Total Cash",
+        "format": "currency"
+      },
+      {
+        "label": "Tickets sold per webinar",
+        "field": "Total Buyers",
+        "format": "number"
+      },
+      {
+        "label": "People who joined",
+        "field": "Program Closes",
+        "format": "number"
+      },
+      {
+        "label": "Show-up rate",
+        "field": "Show-Up Rate (%)",
+        "format": "percent"
+      }
+    ],
+    "funnel": [
+      {
+        "field": "Total Unique LP Views",
+        "label": "Visited the landing page",
+        "simple": "Saw the page"
+      },
+      {
+        "field": "Total Unique Checkout Page Views",
+        "label": "Reached the checkout",
+        "simple": "Started checkout"
+      },
+      {
+        "field": "Total Buyers",
+        "label": "Bought a ticket",
+        "simple": "Bought a ticket"
+      },
+      {
+        "field": "Attendees",
+        "label": "Attended the webinar",
+        "simple": "Showed up"
+      },
+      {
+        "field": "Program Closes",
+        "label": "Joined the program",
+        "simple": "Joined the program"
+      }
+    ],
+    "table": [
+      {
+        "field": "$date",
+        "label": "Webinar",
         "type": "date"
       },
       {
-        "field": "Ad Spend",
-        "label": "Ad spend",
-        "type": "currency"
+        "field": "Total Unique LP Views",
+        "label": "Page views",
+        "type": "number"
+      },
+      {
+        "field": "Total Unique Checkout Page Views",
+        "label": "Checkout",
+        "type": "number",
+        "detail": true
       },
       {
         "field": "Total Buyers",
@@ -346,8 +417,14 @@
         "type": "number"
       },
       {
+        "field": "Ticket Sales",
+        "label": "Ticket $",
+        "type": "currency",
+        "detail": true
+      },
+      {
         "field": "Attendees",
-        "label": "Attendees",
+        "label": "Attended",
         "type": "number"
       },
       {
@@ -357,17 +434,47 @@
       },
       {
         "field": "Program Closes",
-        "label": "Closes",
+        "label": "Joined",
         "type": "number"
       },
       {
         "field": "Closing Rate (%)",
         "label": "Close rate",
-        "type": "percent"
+        "type": "percent",
+        "detail": true
+      },
+      {
+        "field": "Deposits",
+        "label": "Deposits",
+        "type": "number",
+        "detail": true
+      },
+      {
+        "field": "HT Cash Collected",
+        "label": "Program $",
+        "type": "currency",
+        "detail": true
       },
       {
         "field": "Total Cash",
-        "label": "Cash",
+        "label": "Total cash",
+        "type": "currency"
+      },
+      {
+        "field": "Contract Value",
+        "label": "Contracts",
+        "type": "currency",
+        "detail": true
+      },
+      {
+        "field": "AOV (Cash)",
+        "label": "AOV",
+        "type": "currency",
+        "detail": true
+      },
+      {
+        "field": "Ad Spend",
+        "label": "Ad spend",
         "type": "currency"
       },
       {
@@ -378,38 +485,15 @@
       {
         "field": "CAC",
         "label": "CAC",
-        "type": "currency"
+        "type": "currency",
+        "detail": true
       }
     ],
-    "charts": [
-      {
-        "label": "ROAS by webinar (cash collected)",
-        "field": "ROAS CC",
-        "format": "x"
-      },
-      {
-        "label": "Cost per customer (CAC)",
-        "field": "CAC",
-        "format": "currency"
-      },
-      {
-        "label": "Attendees per webinar",
-        "field": "Attendees",
-        "format": "number"
-      },
-      {
-        "label": "Show-up rate (%)",
-        "field": "Show-Up Rate (%)",
-        "format": "percent"
-      }
-    ],
-    "detailColumns": [
-      "Ad spend",
-      "Show-up",
-      "Close rate",
-      "ROAS",
-      "CAC"
-    ]
+    "anomalyCheck": {
+      "field": "Opt-in Rate (%)",
+      "label": "opt-in rate",
+      "tolerance": 1.8
+    }
   },
   "table": {
     "columns": [

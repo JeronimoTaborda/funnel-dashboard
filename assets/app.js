@@ -1389,8 +1389,17 @@
     host.insertAdjacentHTML('beforeend',
       '<section class="kpis" style="margin-top:-8px">' + cards(dash.activity) + '</section>');
 
+    // --- el embudo del webinar (LP -> ... -> cerro), si hubo webinars
+    var wevs = eventRows(w);
+    if (wevs.length) {
+      renderEventFunnel(host, wevs,
+        'It counts the webinars HELD in this period, taken from the Event Tracker, so its '
+        + 'ticket figure can differ by a few from the card above, which counts every ticket '
+        + 'bought inside the calendar period.');
+    }
+
     // --- qué pasó, paso por paso (conteos del periodo, sin % engañosos)
-    var steps = (dash.steps || []).map(function (id) {
+    var steps = (wevs.length ? [] : (dash.steps || [])).map(function (id) {
       return { m: metricById(id), v: metricValue(id, w, evs) || 0 };
     }).filter(function (s) { return s.m; });
 
@@ -1783,176 +1792,204 @@
     return min;
   }
 
-  function sheetRowFor(key) {
+  /** Filas del Event Tracker que caen en la ventana, con su tramo de ventas. */
+  function eventRows(w) {
     var cfg = S.config.events;
-    var rows = (S.raw && (S.raw.tabs || {})[cfg.tab]) || [];
-    for (var i = 0; i < rows.length; i++) {
-      var d = parseDate(rows[i][cfg.dateField]);
-      if (d && iso(d) === key) return rows[i];
-    }
-    return {};
-  }
-
-  /** Una fila por webinar, calculada desde las hojas de origen por fecha.
-   *  Antes se leian las columnas del Event Tracker, que se llenan a mano y no
-   *  cuadran con el libro (para los webinars anteriores a julio el libro ni
-   *  existia). Lo unico que sigue viniendo de la hoja es la ASISTENCIA, que no
-   *  se puede calcular: nadie registra quien entro al webinar. */
-  function webinarRows(w) {
-    var ticketStage = stageById((S.config.sales || {}).entryStage || 'ticket');
-
+    if (!cfg || !S.raw) return [];
+    var rows = (S.raw.tabs || {})[cfg.tab] || [];
+    var byKey = Object.create(null);
+    rows.forEach(function (r) {
+      var d = parseDate(r[cfg.dateField]);
+      if (d) byKey[iso(d)] = r;
+    });
     return webinarWindows().filter(function (win) {
       if (!inWindow(win.date, w)) return false;
       return !S.webinar || win.key === S.webinar;
     }).map(function (win) {
-      var sheet = sheetRowFor(win.key);
-      var evs = revenueEvents({ from: win.from, to: win.to }, true);
-
-      var tickets = 0;
-      S.people.forEach(function (p) {
-        (p.rows[ticketStage.id] || []).forEach(function (row) {
-          var d = rowDate(row, ticketStage);
-          if (d && d >= win.from && d <= win.to) tickets++;
-        });
-      });
-
-      var customers = S.people.filter(function (p) {
-        return p.customerAt && p.customerAt >= win.from && p.customerAt <= win.to;
-      });
-
-      var ledgerCash = evs.reduce(function (a, e) { return a + e.amount; }, 0);
-      var sheetCash = num(sheet['Total Cash']);
-      var ls = ledgerStart();
-
-      // Antes del 7-jul-2026 el libro no existe: su suma solo trae los tickets
-      // y perderia todo el dinero del programa. Ahi manda la cifra de la hoja.
-      var cashSource = 'ledger', cash = ledgerCash;
-      if (ls && win.to < ls) {
-        cashSource = 'sheet';
-        cash = sheetCash != null ? sheetCash : ledgerCash;
-      } else if (ls && win.from < ls) {
-        cashSource = 'partial';
-      }
-
-      var spend = num(sheet['Ad Spend']);
-      var attendees = num(sheet['Attendees']);
-
-      return {
-        key: win.key, date: win.date, from: win.from, to: win.to,
-        cashSource: cashSource, ledgerCash: ledgerCash,
-        tickets: tickets,
-        attendees: attendees,
-        showUp: (attendees != null && tickets) ? (attendees / tickets) * 100 : null,
-        closes: customers.length,
-        contract: customers.reduce(function (a, p) { return a + (p.contract || 0); }, 0),
-        cash: cash,
-        spend: spend,
-        roas: (spend && spend > 0) ? cash / spend : null,
-        cac: (spend && customers.length) ? spend / customers.length : null,
-        sheetTickets: num(sheet['Total Buyers']),
-        sheetCash: sheetCash
-      };
+      return { key: win.key, date: win.date, from: win.from, to: win.to, row: byKey[win.key] || {} };
     }).sort(function (a, b) { return b.date - a.date; });
+  }
+
+  function evNum(e, field) { return field === '$date' ? null : num(e.row[field]); }
+
+  function aggEvents(evs, k) {
+    if (k.agg === 'ratio') {
+      var n = 0, dd = 0;
+      evs.forEach(function (e) { n += evNum(e, k.num) || 0; dd += evNum(e, k.den) || 0; });
+      if (!dd) return null;
+      return k.format === 'percent' ? (n / dd) * 100 : n / dd;
+    }
+    var vals = evs.map(function (e) { return evNum(e, k.field); })
+      .filter(function (v) { return v != null; });
+    if (!vals.length) return null;
+    var tot = vals.reduce(function (a, v) { return a + v; }, 0);
+    return k.agg === 'avg' ? tot / vals.length : tot;
+  }
+
+  /** Contraste con el libro de movimientos. La hoja es la cifra oficial; esto
+   *  solo avisa si algo se desincronizo. Antes de julio el libro no existe. */
+  function reconcile(e) {
+    var sheetCash = evNum(e, 'Total Cash');
+    var ls = ledgerStart();
+    if (sheetCash == null || !ls || e.from < ls) return null;
+    var ledger = revenueEvents({ from: e.from, to: e.to }, true)
+      .reduce(function (a, x) { return a + x.amount; }, 0);
+    var diff = ledger - sheetCash;
+    if (Math.abs(diff) <= Math.max(500, sheetCash * 0.1)) return null;
+    return { ledger: ledger, sheet: sheetCash, diff: diff };
+  }
+
+  /** Filas cuyo indicador se aleja de la mediana: dato probablemente incompleto. */
+  function anomalies(evs) {
+    var cfgA = (S.config.events || {}).anomalyCheck;
+    if (!cfgA || evs.length < 4) return {};
+    var vals = evs.map(function (e) { return evNum(e, cfgA.field); })
+      .filter(function (v) { return v != null; }).sort(function (a, b) { return a - b; });
+    if (!vals.length) return {};
+    var med = vals[Math.floor(vals.length / 2)];
+    var out = {};
+    evs.forEach(function (e) {
+      var v = evNum(e, cfgA.field);
+      if (v == null || !med) return;
+      var r = v / med;
+      if (r > cfgA.tolerance || r < 1 / cfgA.tolerance) {
+        out[e.key] = { value: v, median: med, label: cfgA.label };
+      }
+    });
+    return out;
+  }
+
+  /** Embudo del webinar: LP -> checkout -> ticket -> asistio -> cerro.
+   *  Todos los pasos salen de la MISMA fila del Event Tracker, asi que aqui
+   *  los porcentajes si son conversion real: la gente que compro un ticket es
+   *  la misma que vio la pagina. */
+  function renderEventFunnel(host, evs, basisNote) {
+    var cfg = S.config.events || {};
+    var simple = simpleMode();
+    var steps = (cfg.funnel || []).map(function (f) {
+      return { f: f, v: evs.reduce(function (a, e) { return a + (evNum(e, f.field) || 0); }, 0) };
+    }).filter(function (s) { return s.v > 0; });
+    if (steps.length < 2) return;
+
+    var top = steps[0].v;
+    var rows = steps.map(function (s, i) {
+      var wd = Math.max((s.v / top) * 88, 1.5);
+      var prev = i > 0 ? steps[i - 1].v : null;
+      return '<div class="funnel-row" style="cursor:default">'
+        + '<div class="funnel-name">' + esc(simple && s.f.simple ? s.f.simple : s.f.label)
+        + (i > 0 ? '<small>−' + nfmt(prev - s.v) + ' from the step before</small>' : '') + '</div>'
+        + '<div class="funnel-track">'
+        + '<div class="funnel-bar" style="width:' + wd.toFixed(2) + '%;background:' + BAR + '"></div>'
+        + '<div class="funnel-inline" style="left:' + wd.toFixed(2) + '%">' + nfmt(s.v) + '</div></div>'
+        + '<div class="funnel-metrics"><div class="funnel-step">'
+        + (prev ? pfmt(pct(s.v, prev), 1) : '100%') + '</div>'
+        + '<div class="funnel-total">' + pfmt(pct(s.v, top), 1) + ' of page views</div></div></div>';
+    }).join('');
+
+    host.insertAdjacentHTML('beforeend', card(
+      simple ? 'From a page view to a customer' : 'Webinar funnel',
+      nfmt(evs.length) + (evs.length === 1 ? ' webinar' : ' webinars'),
+      '<div class="funnel">' + rows + '</div>',
+      'These percentages ARE real conversion: every step is measured on the same webinar, so the '
+      + 'people who bought a ticket are the same people who saw the page.'
+      + (basisNote ? ' ' + basisNote : '')));
   }
 
   function renderWebinars(host, w) {
     var cfg = S.config.events;
     if (!cfg) { host.innerHTML = '<div class="empty">No per-event metrics configured for this client.</div>'; return; }
 
-    var rows = webinarRows(w);
-    if (!rows.length) {
-      host.insertAdjacentHTML('beforeend', card(cfg.label, '', '<div class="empty">No webinars in the selected period.</div>'));
+    var evs = eventRows(w);
+    if (!evs.length) {
+      host.insertAdjacentHTML('beforeend', card(cfg.label, '',
+        '<div class="empty">No webinars were held in this period.</div>'));
       return;
     }
     var simple = simpleMode();
-    var sum = function (f) { return rows.reduce(function (a, r) { return a + (r[f] || 0); }, 0); };
-    var spend = sum('spend'), cash = sum('cash'), closes = sum('closes');
-    var tickets = sum('tickets'), att = sum('attendees');
+    var anom = anomalies(eventRows({ from: null, to: null }));
 
-    var kpis = [
-      kpiCard(simple ? 'Tickets sold' : 'Tickets', nfmt(tickets),
-        'people who paid for a seat', null,
-        'Counted from the Ticket Buyers tab: everyone who paid between the previous webinar and this one.'),
-      kpiCard('Attendees', att ? nfmt(att) : '—',
-        tickets ? pfmt(pct(att, tickets), 1) + ' show-up' : '', null,
-        'Taken from the Event Tracker. This is the only number nobody can calculate — attendance is typed in by hand.'),
-      kpiCard(simple ? 'Money received' : 'Cash collected', cfmt(cash),
-        'tickets plus program payments', null,
-        'Every payment charged between the previous webinar and this one, taken from the payment ledger.'),
-      kpiCard(simple ? 'People who joined' : 'Closes', nfmt(closes),
-        cfmt(sum('contract')) + ' in contracts', null,
-        'People who became program customers in this webinar’s window.'),
-      kpiCard(simple ? 'Spent on ads' : 'Ad spend', spend ? cfmt(spend) : '—',
-        'from the Event Tracker', null,
-        'Ad spend is recorded per webinar in the spreadsheet.'),
-      kpiCard(simple ? 'Back per $1 of ads' : 'ROAS',
-        spend ? (simple ? '$' + (Math.round((cash / spend) * 100) / 100).toFixed(2) : xfmt(cash / spend)) : '—',
-        spend ? cfmt(cash) + ' ÷ ' + cfmt(spend) : '', null,
-        'Money received divided by what was spent on ads for that webinar.')
-    ].join('');
-    host.insertAdjacentHTML('beforeend', '<section class="kpis">' + kpis + '</section>');
+    // --- KPIs
+    host.insertAdjacentHTML('beforeend', '<section class="kpis">'
+      + (cfg.kpis || []).map(function (k) {
+        var v = aggEvents(evs, k);
+        var txt = v == null ? '—'
+          : (k.format === 'currency' ? cfmt(v)
+            : (k.format === 'percent' ? pfmt(v, 1)
+              : (k.format === 'x' ? (simple ? '$' + (Math.round(v * 100) / 100).toFixed(2) : xfmt(v))
+                : nfmt(Math.round(v)))));
+        return kpiCard(simple && k.simple ? k.simple : k.label, txt,
+          nfmt(evs.length) + (evs.length === 1 ? ' webinar' : ' webinars'), null, k.help);
+      }).join('') + '</section>');
 
-    var cols = [
-      { k: 'date',      h: 'Webinar',   f: function (r) { return dfmt(r.date); }, left: true },
-      { k: 'window',    h: 'Sales window', f: function (r) { return dfmt(r.from) + ' – ' + dfmt(r.to); }, left: true, detail: true },
-      { k: 'tickets',   h: 'Tickets',   f: function (r) { return nfmt(r.tickets); } },
-      { k: 'attendees', h: 'Attendees', f: function (r) { return r.attendees == null ? '—' : nfmt(r.attendees); } },
-      { k: 'showUp',    h: 'Show-up',   f: function (r) { return r.showUp == null ? '—' : pfmt(r.showUp, 1); } },
-      { k: 'closes',    h: 'Joined',    f: function (r) { return nfmt(r.closes); } },
-      { k: 'cash', h: 'Cash', f: function (r) {
-          return cfmt(r.cash) + (r.cashSource === 'ledger' ? ''
-            : (r.cashSource === 'sheet' ? '  \u00b7 from sheet' : '  \u00b7 partial')); } },
-      { k: 'spend',     h: 'Ad spend',  f: function (r) { return r.spend == null ? '—' : cfmt(r.spend); }, detail: true },
-      { k: 'roas',      h: 'ROAS',      f: function (r) { return r.roas == null ? '—' : xfmt(r.roas); }, detail: true },
-      { k: 'cac',       h: 'CAC',       f: function (r) { return r.cac == null ? '—' : cfmt(r.cac); }, detail: true },
-      { k: 'sheetCash', h: 'Cash (sheet)', f: function (r) { return r.sheetCash == null ? '—' : cfmt(r.sheetCash); }, detail: true }
-    ].filter(function (col) { return !simple || !col.detail; });
+    renderEventFunnel(host, evs);
 
-    var head = '<tr>' + cols.map(function (col) {
-      return '<th' + (col.left ? '' : ' class="num"') + '>' + esc(col.h) + '</th>';
+    // --- tabla
+    var cols = (cfg.table || []).filter(function (c2) { return !simple || !c2.detail; });
+    var head = '<tr>' + cols.map(function (c2) {
+      return '<th' + (c2.type === 'date' ? '' : ' class="num"') + '>' + esc(c2.label) + '</th>';
     }).join('') + '</tr>';
-    var body = rows.map(function (r) {
-      return '<tr>' + cols.map(function (col) {
-        return '<td' + (col.left ? '' : ' class="num"') + '>' + esc(col.f(r)) + '</td>';
+
+    var body = evs.map(function (e) {
+      var rec = reconcile(e), a = anom[e.key];
+      return '<tr>' + cols.map(function (c2) {
+        if (c2.type === 'date') {
+          return '<td>' + esc(dfmt(e.date))
+            + (a ? ' <span class="tag" title="Its ' + esc(a.label) + ' is ' + esc(pfmt(a.value, 1))
+              + ' against a median of ' + esc(pfmt(a.median, 1))
+              + ' — the tracking for this webinar looks incomplete">check</span>' : '')
+            + (rec ? ' <span class="tag" title="The ledger adds up to ' + esc(cfmt(rec.ledger))
+              + ' for this window, ' + esc(cfmt(Math.abs(rec.diff)))
+              + (rec.diff > 0 ? ' more' : ' less') + ' than the sheet">ledger differs</span>' : '')
+            + '</td>';
+        }
+        var v = evNum(e, c2.field);
+        var txt = v == null ? '—'
+          : (c2.type === 'currency' ? cfmt(v)
+            : (c2.type === 'percent' ? pfmt(v, 1)
+              : (c2.type === 'x' ? xfmt(v) : nfmt(Math.round(v * 100) / 100))));
+        return '<td class="num">' + esc(txt) + '</td>';
       }).join('') + '</tr>';
     }).join('');
 
-    var mismatch = rows.filter(function (r) {
-      return r.sheetCash != null && Math.abs(r.sheetCash - r.cash) > Math.max(500, r.cash * 0.1);
-    });
+    var recs = evs.map(reconcile).filter(Boolean);
+    var anoms = evs.filter(function (e) { return anom[e.key]; });
 
     host.insertAdjacentHTML('beforeend', card(cfg.label,
-      nfmt(rows.length) + (rows.length === 1 ? ' webinar' : ' webinars'),
+      nfmt(evs.length) + (evs.length === 1 ? ' webinar' : ' webinars'),
       '<div class="table-scroll"><table class="report-table"><thead>' + head
       + '</thead><tbody>' + body + '</tbody></table></div>'
-      + (rows.some(function (r) { return r.cashSource !== 'ledger'; })
-        ? '<p class="card-desc" style="margin:14px 0 0"><strong>Where the cash figure comes from:</strong> '
-          + 'the payment ledger starts on ' + esc(dfmt(ledgerStart()))
-          + '. Webinars before that show the Total Cash typed into the Event Tracker, marked '
-          + '\u201cfrom sheet\u201d, because the ledger has no payments to add up for them.</p>' : ''),
-      'Tickets, cash and joins are counted from the source tabs by date — everyone who paid '
-      + 'between the previous webinar and this one. Attendance comes from the Event Tracker, '
-      + 'because nobody records who actually showed up.'));
+      + (!simple && recs.length
+        ? '<p class="card-desc" style="margin:14px 0 0"><strong>Ledger check:</strong> for '
+          + nfmt(recs.length) + ' of these webinars the payments recorded in the ledger do not match '
+          + 'the Total Cash in the sheet by more than 10%. Hover the <em>ledger differs</em> tag to see '
+          + 'both figures. The ledger only starts on ' + esc(dfmt(ledgerStart()))
+          + ', so earlier webinars are not checked.</p>' : '')
+      + (anoms.length
+        ? '<p class="card-desc" style="margin:10px 0 0"><strong>Worth a look:</strong> '
+          + nfmt(anoms.length) + ' webinar' + (anoms.length > 1 ? 's have' : ' has')
+          + ' an opt-in rate far from the others, which usually means the page-view tracking for '
+          + 'that event is incomplete. The numbers are shown as they are in the sheet.</p>' : ''),
+      cfg.note));
 
+    // --- graficos
     var grid = document.createElement('section');
     grid.className = 'grid-2';
     grid.style.marginTop = '20px';
     host.appendChild(grid);
-
-    [{ f: 'cash', label: 'Money received per webinar', fmt: cfmt },
-     { f: 'tickets', label: 'Tickets sold per webinar', fmt: nfmt },
-     { f: 'closes', label: 'People who joined per webinar', fmt: nfmt },
-     { f: 'attendees', label: 'Attendees per webinar', fmt: nfmt }].forEach(function (ch) {
-      var items = rows.slice().reverse()
-        .map(function (r) { return { key: dfmt(r.date), count: r[ch.f] }; })
-        .filter(function (i) { return i.count != null; });
+    (cfg.charts || []).forEach(function (ch) {
+      var items = evs.slice().reverse().map(function (e) {
+        return { key: dfmt(e.date), count: evNum(e, ch.field) };
+      }).filter(function (i) { return i.count != null; });
       if (!items.length) return;
       var box = document.createElement('div');
       box.innerHTML = '<div class="card-title" style="font-size:13.5px;margin-bottom:10px">'
         + esc(ch.label) + '</div><div class="slot"></div>';
       grid.appendChild(box);
-      drawBars(box.querySelector('.slot'), items, 0, ch.label,
-        { fmt: ch.fmt, showPct: false, valueLabel: ch.label, labelWidth: 130 });
+      drawBars(box.querySelector('.slot'), items, 0, ch.label, {
+        fmt: ch.format === 'currency' ? cfmt : (ch.format === 'percent'
+          ? function (v) { return pfmt(v, 1); } : nfmt),
+        showPct: false, valueLabel: ch.label, labelWidth: 130
+      });
     });
   }
 
@@ -2273,12 +2310,12 @@
 
     if (S.view === 'webinars') {
       var cfg = S.config.events, evs2 = eventRows(w);
-      var cols = (cfg.columns || []).map(function (c) { return c.label; });
-      var l2 = [['Date'].concat(cols.slice(1))];
+      var tcols = cfg.table || [];
+      var l2 = [tcols.map(function (c) { return c.label; })];
       evs2.forEach(function (e) {
-        l2.push([dfmt(e.date)].concat((cfg.columns || []).slice(1).map(function (c) {
-          return e.row[c.field] || '';
-        })));
+        l2.push(tcols.map(function (c) {
+          return c.type === 'date' ? dfmt(e.date) : (e.row[c.field] || '');
+        }));
       });
       return csvBlob(l2, S.clientId + '-webinars-' + stamp + '.csv');
     }

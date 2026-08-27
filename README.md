@@ -536,3 +536,60 @@ tooltip dice qué decía la hoja antes:
 y `$264.324` en contratos, `$24.918` más de lo que sumaba la columna cruda.
 
 Para revertirlo, vaciar `contractMap` y poner `contractFromLedger: false`.
+
+---
+
+## 15. Auditoría de Webinars (2026-08-27)
+
+### Lo que encontré
+
+El `Event Tracker` tiene **48 columnas y las 8 filas completas**, y es
+**internamente consistente**: `Total Cash = HT Cash Collected + Ticket Sales`
+cuadra en todas las filas sin excepción. Yo estaba usando solo 11 columnas y
+recalculando por mi cuenta lo que la hoja ya tenía bien.
+
+Peor: mi cálculo pierde todo lo anterior al **7 de julio de 2026**, cuando
+empieza `Program Buyers`. Para los webinars de abril a junio mostraba $2.000–4.000
+de caja cuando la hoja registra $25.000–34.000.
+
+### La decisión
+
+**La hoja es la cifra oficial; el libro es el verificador.** Cuando el libro
+difiere más de 10% de `Total Cash`, la fila lleva la etiqueta `ledger differs` y
+el tooltip muestra ambas cifras. Los webinars anteriores al libro no se verifican
+y se dice.
+
+### El embudo real
+
+Estaba mostrando el embudo desde la mitad. La hoja mide el tramo completo, y
+como **todos los pasos vienen de la misma fila**, aquí los porcentajes sí son
+conversión de verdad:
+
+| Paso | Todo el histórico | Conversión |
+|---|---|---|
+| Vieron la página | 21.083 | 100% |
+| Llegaron al checkout | 2.041 | 9,7% |
+| Compraron ticket | 705 | 34,5% |
+| Asistieron | 413 | 58,6% |
+| Se unieron al programa | 47 | 11,4% |
+
+Este embudo aparece en Webinars y en el Dashboard cuando el periodo contiene
+algún webinar. Su cifra de tickets puede diferir en unas pocas unidades de la
+tarjeta del Dashboard: el embudo cuenta el webinar, la tarjeta cuenta el mes
+calendario. Está dicho en la propia tarjeta.
+
+### Avisos automáticos
+
+- **`ledger differs`** — el libro no cuadra con la hoja en ese tramo.
+- **`check`** — el `Opt-in Rate` se aleja más de 1,8× de la mediana, que casi
+  siempre significa que el registro de visitas de ese evento quedó incompleto.
+  El caso real: el 20 de agosto tiene **961** visitas contra ~3.000 de los demás
+  y un opt-in de **74,4%** contra ~35%. Los números se muestran tal como están
+  en la hoja; solo se avisa.
+
+### Validación del mapeo de cuotas
+
+La columna `S-P Price` confirma el mapeo: **$1.665 en los últimos 4 webinars**,
+que × 3 = **$4.995**, exactamente lo que usa `contractMap`. Para marzo la hoja no
+tiene `S-P Price`, así que $1.650 → $4.950 sigue siendo una deducción por
+analogía (decisión del cliente, 2026-08-27).
