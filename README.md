@@ -146,12 +146,13 @@ navegador, y con el botón **Actualizar**.
 ### 3.4 Publicar
 
 ```bash
-git init && git add . && git commit -m "dashboard de embudo"
-git remote add origin git@github.com:<usuario>/funnel-dashboard.git
 git push -u origin main
 ```
 
-GitHub → **Settings → Pages → Source: Deploy from branch → main / (root)**.
+GitHub → **Settings → Pages → Source: Deploy from a branch → main / (root)**.
+
+Queda en `https://<usuario>.github.io/funnel-dashboard/`. Cada `git push`
+vuelve a publicar solo, en ~1 minuto.
 
 ---
 
@@ -260,30 +261,44 @@ ROAS y CAC, con KPIs agregados y gráficos de ROAS / CAC / asistentes / show-up.
 Todo es responsive, tiene tema claro/oscuro y cada gráfico trae su "Ver como
 tabla" para lectores de pantalla.
 
-## 7. Seguridad — leer antes de enviarlo al cliente
+## 7. Seguridad — cómo está protegido
 
-**GitHub Pages es público.** Cualquiera con la URL ve el dashboard, y el token
-del Apps Script viaja dentro del JavaScript de la página. Para datos con nombres,
-emails y teléfonos de padres en situación de alienación parental, eso **no es
-suficiente**.
+El repo es **público** (GitHub Pages gratis solo publica repos públicos), pero
+**no contiene datos ni claves**. Lo que se publica es solo código.
 
-Opciones, de menos a más trabajo:
+```
+Visitante  →  github.io (HTML vacío + pantalla de acceso)
+                    ↓  escribe la clave
+              se guarda en SU navegador (localStorage)
+                    ↓  la manda al Apps Script
+              Apps Script  →  compara con su TOKEN  →  datos
+```
 
-| Nivel | Cómo | Coste |
-|---|---|---|
-| **Mínimo aceptable** | Publicar en **Cloudflare Pages** en vez de GitHub Pages y activar **Cloudflare Access** con lista de emails autorizados. El cliente entra con un código a su correo. | Gratis hasta 50 usuarios |
-| Alternativa | **Netlify** con protección por contraseña del sitio | Plan Pro |
-| Nivel empresa | GitHub Pages privado | requiere GitHub Enterprise |
-| **No hacer** | Confiar en que la URL sea difícil de adivinar | — |
+Sin la clave correcta el Apps Script responde `unauthorized` y la página no
+tiene nada que mostrar. La clave:
 
-El código es idéntico en las tres: solo cambia dónde se sube. Recomiendo
-**Cloudflare Pages + Access** — se conecta al mismo repo de GitHub y el deploy
-sigue siendo `git push`.
+- **no está en el repo** (ni en `clients/*.json` ni en `Code.gs`)
+- vive solo en el editor de Apps Script y en el navegador de cada persona autorizada
+- se pide una vez por navegador; el botón de salir la borra
 
-Aparte de eso: `Code.gs` **nunca** debe exponer pestañas con notas internas
-(usar `IGNORE_TABS`), y el `TOKEN` debe ser distinto por cliente.
+**Lo que esto sí protege:** que alguien que encuentre la URL vea los datos.
+Una clave de 20 caracteres aleatorios no se adivina.
 
----
+**Lo que no protege:**
+
+| Límite | Implicación |
+|---|---|
+| Es una clave compartida, no cuentas individuales | Si alguien la reenvía, quien la reciba entra. No hay forma de saber quién vio qué. |
+| Para revocar hay que rotarla | Cambiarla en Apps Script (nueva versión) obliga a todos a escribir la nueva. |
+| Quien tenga la clave puede leer el JSON crudo | Es el mismo acceso que tiene en el dashboard, así que no agrega exposición. |
+
+Si más adelante hace falta control por persona (quién entró, revocar a uno solo),
+la ruta es **Cloudflare Pages + Access** con Google como proveedor de identidad:
+mismo repo, mismo `git push`, y cada quien entra con su correo. No requiere
+cambiar el código.
+
+⚠️ **Nunca escribas la clave real en `Code.gs` dentro del repo.** Ese archivo se
+publica. La clave se escribe únicamente en el editor de Apps Script.
 
 ## 8. Probar en local
 
