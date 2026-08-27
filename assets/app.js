@@ -706,7 +706,7 @@
   // El ingreso pertenece a la fecha del PAGO, no a la fecha de captacion:
   // alguien que compro el ticket en marzo y cerro en julio suma en julio.
 
-  function revenueEvents(w) {
+  function revenueEvents(w, ignoreWebinarFilter) {
     var out = [];
     var cfg = txConfig();
     // Las entradas se cuentan desde Ticket Buyers (806 filas), no desde el
@@ -745,7 +745,7 @@
       });
     }
 
-    if (S.webinar) {
+    if (S.webinar && !ignoreWebinarFilter) {
       out = out.filter(function (e) { return webinarOfEvent(e) === S.webinar; });
     }
     return out.sort(function (a, b) { return b.date - a.date; });
@@ -776,7 +776,10 @@
   // Para que el filtro por webinar cubra TAMBIEN las ventas de ticket, se
   // deduce el evento por fecha: un ticket pertenece al primer webinar que
   // ocurre en o despues de la compra, dentro de una ventana razonable.
-  var WEBINAR_LOOKAHEAD_DAYS = 45;
+  // Cada webinar "posee" el periodo que va desde el dia siguiente al webinar
+  // anterior hasta el dia del webinar. Es como lo cuenta el equipo: todo el
+  // que pago entre un webinar y el siguiente pertenece al siguiente.
+  var FIRST_WINDOW_DAYS = 21;   // el primer webinar no tiene anterior
 
   function eventDates() {
     if (S._events) return S._events;
@@ -788,14 +791,28 @@
     return S._events;
   }
 
+  /** [{ date, from, to }] — un tramo por webinar, sin huecos ni solapes. */
+  function webinarWindows() {
+    if (S._winCache) return S._winCache;
+    var evs = eventDates();
+    S._winCache = evs.map(function (d, i) {
+      var from = i === 0
+        ? new Date(d.getTime() - FIRST_WINDOW_DAYS * 86400000)
+        : new Date(evs[i - 1].getTime() + 86400000);
+      var to = new Date(d.getTime());
+      to.setHours(23, 59, 59, 999);
+      return { date: d, key: iso(d), from: from, to: to };
+    });
+    return S._winCache;
+  }
+
   function webinarFor(date) {
     if (!date) return '';
-    var evs = eventDates();
-    for (var i = 0; i < evs.length; i++) {
-      var diff = daysBetween(date, evs[i]);
-      if (diff >= -1 && diff <= WEBINAR_LOOKAHEAD_DAYS) return iso(evs[i]);
+    var ws = webinarWindows();
+    for (var i = 0; i < ws.length; i++) {
+      if (date >= ws[i].from && date <= ws[i].to) return ws[i].key;
     }
-    return '';   // comprado despues del ultimo webinar registrado
+    return '';   // pagado despues del ultimo webinar registrado
   }
 
   /** Webinar al que se atribuye una persona. */
@@ -1789,59 +1806,194 @@
     return k.agg === 'avg' ? tot / vals.length : tot;
   }
 
+  /** Primer pago registrado en el libro. Antes de esa fecha el libro no
+   *  existe, asi que su suma no es "cero ingresos" sino "sin datos". */
+  function ledgerStart() {
+    if (S._ledgerStart !== undefined) return S._ledgerStart;
+    var st = stageById((txConfig() || {}).stage);
+    var min = null;
+    if (st) {
+      S.people.forEach(function (p) {
+        (p.rows[st.id] || []).forEach(function (row) {
+          var d = rowDate(row, st);
+          if (d && (!min || d < min)) min = d;
+        });
+      });
+    }
+    S._ledgerStart = min;
+    return min;
+  }
+
+  function sheetRowFor(key) {
+    var cfg = S.config.events;
+    var rows = (S.raw && (S.raw.tabs || {})[cfg.tab]) || [];
+    for (var i = 0; i < rows.length; i++) {
+      var d = parseDate(rows[i][cfg.dateField]);
+      if (d && iso(d) === key) return rows[i];
+    }
+    return {};
+  }
+
+  /** Una fila por webinar, calculada desde las hojas de origen por fecha.
+   *  Antes se leian las columnas del Event Tracker, que se llenan a mano y no
+   *  cuadran con el libro (para los webinars anteriores a julio el libro ni
+   *  existia). Lo unico que sigue viniendo de la hoja es la ASISTENCIA, que no
+   *  se puede calcular: nadie registra quien entro al webinar. */
+  function webinarRows(w) {
+    var ticketStage = stageById((S.config.sales || {}).entryStage || 'ticket');
+
+    return webinarWindows().filter(function (win) {
+      if (!inWindow(win.date, w)) return false;
+      return !S.webinar || win.key === S.webinar;
+    }).map(function (win) {
+      var sheet = sheetRowFor(win.key);
+      var evs = revenueEvents({ from: win.from, to: win.to }, true);
+
+      var tickets = 0;
+      S.people.forEach(function (p) {
+        (p.rows[ticketStage.id] || []).forEach(function (row) {
+          var d = rowDate(row, ticketStage);
+          if (d && d >= win.from && d <= win.to) tickets++;
+        });
+      });
+
+      var customers = S.people.filter(function (p) {
+        return p.customerAt && p.customerAt >= win.from && p.customerAt <= win.to;
+      });
+
+      var ledgerCash = evs.reduce(function (a, e) { return a + e.amount; }, 0);
+      var sheetCash = num(sheet['Total Cash']);
+      var ls = ledgerStart();
+
+      // Antes del 7-jul-2026 el libro no existe: su suma solo trae los tickets
+      // y perderia todo el dinero del programa. Ahi manda la cifra de la hoja.
+      var cashSource = 'ledger', cash = ledgerCash;
+      if (ls && win.to < ls) {
+        cashSource = 'sheet';
+        cash = sheetCash != null ? sheetCash : ledgerCash;
+      } else if (ls && win.from < ls) {
+        cashSource = 'partial';
+      }
+
+      var spend = num(sheet['Ad Spend']);
+      var attendees = num(sheet['Attendees']);
+
+      return {
+        key: win.key, date: win.date, from: win.from, to: win.to,
+        cashSource: cashSource, ledgerCash: ledgerCash,
+        tickets: tickets,
+        attendees: attendees,
+        showUp: (attendees != null && tickets) ? (attendees / tickets) * 100 : null,
+        closes: customers.length,
+        contract: customers.reduce(function (a, p) { return a + (p.contract || 0); }, 0),
+        cash: cash,
+        spend: spend,
+        roas: (spend && spend > 0) ? cash / spend : null,
+        cac: (spend && customers.length) ? spend / customers.length : null,
+        sheetTickets: num(sheet['Total Buyers']),
+        sheetCash: sheetCash
+      };
+    }).sort(function (a, b) { return b.date - a.date; });
+  }
+
   function renderWebinars(host, w) {
     var cfg = S.config.events;
     if (!cfg) { host.innerHTML = '<div class="empty">No per-event metrics configured for this client.</div>'; return; }
 
-    var evs = eventRows(w);
-    if (!evs.length) {
-      host.insertAdjacentHTML('beforeend', card(cfg.label, '', '<div class="empty">No events in the selected period.</div>'));
+    var rows = webinarRows(w);
+    if (!rows.length) {
+      host.insertAdjacentHTML('beforeend', card(cfg.label, '', '<div class="empty">No webinars in the selected period.</div>'));
       return;
     }
+    var simple = simpleMode();
+    var sum = function (f) { return rows.reduce(function (a, r) { return a + (r[f] || 0); }, 0); };
+    var spend = sum('spend'), cash = sum('cash'), closes = sum('closes');
+    var tickets = sum('tickets'), att = sum('attendees');
 
-    var pw = prevWindow();
-    var prevE = (S.compare && pw) ? eventRows(pw) : null;
-
-    var kpis = (cfg.kpis || []).map(function (k) {
-      var v = aggEvents(evs, k);
-      var pv = prevE ? aggEvents(prevE, k) : null;
-      return kpiCard(k.label, v == null ? '—' : esc(fmtBy(k.format)(v)),
-        evs.length + ' webinars', delta(v || 0, pv));
-    }).join('');
+    var kpis = [
+      kpiCard(simple ? 'Tickets sold' : 'Tickets', nfmt(tickets),
+        'people who paid for a seat', null,
+        'Counted from the Ticket Buyers tab: everyone who paid between the previous webinar and this one.'),
+      kpiCard('Attendees', att ? nfmt(att) : '—',
+        tickets ? pfmt(pct(att, tickets), 1) + ' show-up' : '', null,
+        'Taken from the Event Tracker. This is the only number nobody can calculate — attendance is typed in by hand.'),
+      kpiCard(simple ? 'Money received' : 'Cash collected', cfmt(cash),
+        'tickets plus program payments', null,
+        'Every payment charged between the previous webinar and this one, taken from the payment ledger.'),
+      kpiCard(simple ? 'People who joined' : 'Closes', nfmt(closes),
+        cfmt(sum('contract')) + ' in contracts', null,
+        'People who became program customers in this webinar’s window.'),
+      kpiCard(simple ? 'Spent on ads' : 'Ad spend', spend ? cfmt(spend) : '—',
+        'from the Event Tracker', null,
+        'Ad spend is recorded per webinar in the spreadsheet.'),
+      kpiCard(simple ? 'Back per $1 of ads' : 'ROAS',
+        spend ? (simple ? '$' + (Math.round((cash / spend) * 100) / 100).toFixed(2) : xfmt(cash / spend)) : '—',
+        spend ? cfmt(cash) + ' ÷ ' + cfmt(spend) : '', null,
+        'Money received divided by what was spent on ads for that webinar.')
+    ].join('');
     host.insertAdjacentHTML('beforeend', '<section class="kpis">' + kpis + '</section>');
 
-    var hideCols = simpleMode() ? (cfg.detailColumns || []) : [];
-    var cols = (cfg.columns || []).filter(function (c) { return hideCols.indexOf(c.label) === -1; });
-    var head = '<tr>' + cols.map(function (c) {
-      return '<th' + (c.type !== 'date' ? ' class="num"' : '') + '>' + esc(c.label) + '</th>';
+    var cols = [
+      { k: 'date',      h: 'Webinar',   f: function (r) { return dfmt(r.date); }, left: true },
+      { k: 'window',    h: 'Sales window', f: function (r) { return dfmt(r.from) + ' – ' + dfmt(r.to); }, left: true, detail: true },
+      { k: 'tickets',   h: 'Tickets',   f: function (r) { return nfmt(r.tickets); } },
+      { k: 'attendees', h: 'Attendees', f: function (r) { return r.attendees == null ? '—' : nfmt(r.attendees); } },
+      { k: 'showUp',    h: 'Show-up',   f: function (r) { return r.showUp == null ? '—' : pfmt(r.showUp, 1); } },
+      { k: 'closes',    h: 'Joined',    f: function (r) { return nfmt(r.closes); } },
+      { k: 'cash', h: 'Cash', f: function (r) {
+          return cfmt(r.cash) + (r.cashSource === 'ledger' ? ''
+            : (r.cashSource === 'sheet' ? '  \u00b7 from sheet' : '  \u00b7 partial')); } },
+      { k: 'spend',     h: 'Ad spend',  f: function (r) { return r.spend == null ? '—' : cfmt(r.spend); }, detail: true },
+      { k: 'roas',      h: 'ROAS',      f: function (r) { return r.roas == null ? '—' : xfmt(r.roas); }, detail: true },
+      { k: 'cac',       h: 'CAC',       f: function (r) { return r.cac == null ? '—' : cfmt(r.cac); }, detail: true },
+      { k: 'sheetCash', h: 'Cash (sheet)', f: function (r) { return r.sheetCash == null ? '—' : cfmt(r.sheetCash); }, detail: true }
+    ].filter(function (col) { return !simple || !col.detail; });
+
+    var head = '<tr>' + cols.map(function (col) {
+      return '<th' + (col.left ? '' : ' class="num"') + '>' + esc(col.h) + '</th>';
     }).join('') + '</tr>';
-    var body = evs.map(function (e) {
-      return '<tr>' + cols.map(function (c) {
-        if (c.type === 'date') return '<td>' + esc(dfmt(e.date)) + '</td>';
-        var v = num(e.row[c.field]);
-        return '<td class="num">' + esc(v == null ? '—' : fmtBy(c.type)(v)) + '</td>';
+    var body = rows.map(function (r) {
+      return '<tr>' + cols.map(function (col) {
+        return '<td' + (col.left ? '' : ' class="num"') + '>' + esc(col.f(r)) + '</td>';
       }).join('') + '</tr>';
     }).join('');
 
+    var mismatch = rows.filter(function (r) {
+      return r.sheetCash != null && Math.abs(r.sheetCash - r.cash) > Math.max(500, r.cash * 0.1);
+    });
+
     host.insertAdjacentHTML('beforeend', card(cfg.label,
-      nfmt(evs.length) + ' events in period',
+      nfmt(rows.length) + (rows.length === 1 ? ' webinar' : ' webinars'),
       '<div class="table-scroll"><table class="report-table"><thead>' + head
       + '</thead><tbody>' + body + '</tbody></table></div>'
-      + '<div class="grid-2" style="margin-top:24px" id="eventCharts"></div>',
-      cfg.note));
+      + (rows.some(function (r) { return r.cashSource !== 'ledger'; })
+        ? '<p class="card-desc" style="margin:14px 0 0"><strong>Where the cash figure comes from:</strong> '
+          + 'the payment ledger starts on ' + esc(dfmt(ledgerStart()))
+          + '. Webinars before that show the Total Cash typed into the Event Tracker, marked '
+          + '\u201cfrom sheet\u201d, because the ledger has no payments to add up for them.</p>' : ''),
+      'Tickets, cash and joins are counted from the source tabs by date — everyone who paid '
+      + 'between the previous webinar and this one. Attendance comes from the Event Tracker, '
+      + 'because nobody records who actually showed up.'));
 
-    var grid = $('#eventCharts');
-    (cfg.charts || []).forEach(function (ch) {
-      var items = evs.slice().reverse().map(function (e) {
-        return { key: dfmt(e.date), count: num(e.row[ch.field]) };
-      }).filter(function (i) { return i.count != null; });
+    var grid = document.createElement('section');
+    grid.className = 'grid-2';
+    grid.style.marginTop = '20px';
+    host.appendChild(grid);
+
+    [{ f: 'cash', label: 'Money received per webinar', fmt: cfmt },
+     { f: 'tickets', label: 'Tickets sold per webinar', fmt: nfmt },
+     { f: 'closes', label: 'People who joined per webinar', fmt: nfmt },
+     { f: 'attendees', label: 'Attendees per webinar', fmt: nfmt }].forEach(function (ch) {
+      var items = rows.slice().reverse()
+        .map(function (r) { return { key: dfmt(r.date), count: r[ch.f] }; })
+        .filter(function (i) { return i.count != null; });
       if (!items.length) return;
       var box = document.createElement('div');
       box.innerHTML = '<div class="card-title" style="font-size:13.5px;margin-bottom:10px">'
         + esc(ch.label) + '</div><div class="slot"></div>';
       grid.appendChild(box);
       drawBars(box.querySelector('.slot'), items, 0, ch.label,
-        { fmt: fmtBy(ch.format), showPct: false, valueLabel: ch.label, labelWidth: 130 });
+        { fmt: ch.fmt, showPct: false, valueLabel: ch.label, labelWidth: 130 });
     });
   }
 
@@ -2343,6 +2495,8 @@
     S.raw = payload;
     S.demo = !!isDemo || !!payload.demo;
     S._events = null;
+    S._winCache = null;
+    S._ledgerStart = undefined;
     S.people = applyTransactions(normalize(payload));
     S.byKey = Object.create(null);
     S.people.forEach(function (p) { S.byKey[p.key] = p; });
@@ -2442,6 +2596,36 @@
         + '<span class="banner-icon" style="color:var(--critical)">●</span><div><strong>Error:</strong> '
         + esc(err.message) + '</div></div>';
     });
+  }
+
+  // Modo diagnostico: index.html?debug=1 expone el estado para auditar los
+  // numeros desde la consola sin tocar el codigo de produccion.
+  if (new URLSearchParams(location.search).get('debug') === '1') {
+    window.__fd = {
+      state: S,
+      revenueEvents: revenueEvents,
+      currentWindow: currentWindow,
+      newCustomers: newCustomers,
+      classifyTx: classifyTx,
+      audit: function () {
+        var w = currentWindow();
+        var evs = revenueEvents(w);
+        var byCls = {};
+        evs.forEach(function (e) { byCls[e.cls] = (byCls[e.cls] || 0) + e.amount; });
+        var txAll = 0, txN = 0;
+        S.people.forEach(function (p) {
+          (p.tx || []).forEach(function (x) { txAll += x.amount; txN++; });
+        });
+        return {
+          window: [w.from && w.from.toDateString(), w.to && w.to.toDateString()],
+          people: S.people.length,
+          txRowsTotal: txN, txCashTotal: Math.round(txAll),
+          eventsInWindow: evs.length,
+          totalInWindow: Math.round(evs.reduce(function (a, e) { return a + e.amount; }, 0)),
+          byClass: byCls
+        };
+      }
+    };
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

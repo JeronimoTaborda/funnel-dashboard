@@ -903,3 +903,21 @@ details.table-toggle > summary:hover { color: var(--ink-2); }
   .headline { font-size: var(--fs-lg); }
   .seg-mode button { padding: 6px 9px; font-size: var(--fs-xs); }
 }
+
+
+/* ---------- Aviso de filtro activo --------------------------------------- */
+
+.filter-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: 8px; padding: 2px 4px 2px 10px;
+  border-radius: 999px;
+  background: var(--brand); color: var(--brand-ink);
+  font-size: var(--fs-xs); font-weight: 650;
+}
+.filter-pill button {
+  border: 0; background: rgba(0,0,0,.14); color: inherit;
+  width: 17px; height: 17px; border-radius: 50%;
+  font-size: 13px; line-height: 1; cursor: pointer;
+  display: grid; place-items: center;
+}
+.filter-pill button:hover { background: rgba(0,0,0,.28); }
